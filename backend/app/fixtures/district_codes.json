@@ -1,35 +1,57 @@
 {
   "meta": {
-    "source": "Local Government Directory (LGD), Ministry of Panchayati Raj",
-    "note": "Subset seeded for the prototype. Codes to be verified against the live LGD directory before demo.",
-    "fetched_on": "2026-09-05"
+    "join_key": "censuscode",
+    "boundary_source": "DataMeet Community Maps, Districts/Census_2011/2011_Dist.shp (CC BY 4.0)",
+    "note": "Census 2011 district codes. Telangana (2014) and Ladakh (2019) do not exist in the 2011 boundaries; their districts are reassigned here from Andhra Pradesh and Jammu & Kashmir respectively. Districts subdivided since 2011 are not represented separately.",
+    "compiled_on": "2026-09-05"
   },
   "states": {
-    "29": { "name": "Karnataka",      "has_sca": true },
-    "27": { "name": "Maharashtra",    "has_sca": true },
-    "33": { "name": "Tamil Nadu",     "has_sca": true },
-    "03": { "name": "Punjab",         "has_sca": true },
+    "29": { "name": "Karnataka", "has_sca": true },
+    "27": { "name": "Maharashtra", "has_sca": true },
+    "33": { "name": "Tamil Nadu", "has_sca": true },
+    "3": { "name": "Punjab", "has_sca": true },
     "23": { "name": "Madhya Pradesh", "has_sca": true },
-    "36": { "name": "Telangana",      "has_sca": false,
-            "no_sca_note": "No State Channelising Agency. Parliamentary Standing Committee on Social Justice and Empowerment, report adopted 10 August 2026 — sourced via press reporting; primary PDF not obtained." },
-    "37": { "name": "Ladakh",         "has_sca": false,
-            "no_sca_note": "No State Channelising Agency. Parliamentary Standing Committee on Social Justice and Empowerment, report adopted 10 August 2026 — sourced via press reporting; primary PDF not obtained." }
+    "36": {
+      "name": "Telangana",
+      "has_sca": false,
+      "no_sca_note": "Telangana has no State Channelising Agency. Parliamentary Standing Committee on Social Justice and Empowerment, report adopted 10 August 2026 — sourced via press reporting; primary PDF not obtained."
+    },
+    "37": {
+      "name": "Ladakh",
+      "has_sca": false,
+      "no_sca_note": "Ladakh has no State Channelising Agency. Parliamentary Standing Committee on Social Justice and Empowerment, report adopted 10 August 2026 — sourced via press reporting; primary PDF not obtained."
+    }
   },
   "districts": [
-    { "district_code": "532", "state_code": "29", "name": "Bengaluru Urban", "geojson_name": "Bangalore" },
-    { "district_code": "533", "state_code": "29", "name": "Bengaluru Rural", "geojson_name": "Bangalore Rural" },
-    { "district_code": "534", "state_code": "29", "name": "Belagavi",        "geojson_name": "Belgaum" },
-    { "district_code": "535", "state_code": "29", "name": "Mysuru",          "geojson_name": "Mysore" },
-    { "district_code": "519", "state_code": "27", "name": "Pune",            "geojson_name": "Pune" },
-    { "district_code": "520", "state_code": "27", "name": "Nagpur",          "geojson_name": "Nagpur" },
-    { "district_code": "603", "state_code": "33", "name": "Chennai",         "geojson_name": "Chennai" },
-    { "district_code": "604", "state_code": "33", "name": "Coimbatore",      "geojson_name": "Coimbatore" },
-    { "district_code": "042", "state_code": "03", "name": "Ludhiana",        "geojson_name": "Ludhiana" },
-    { "district_code": "043", "state_code": "03", "name": "Amritsar",        "geojson_name": "Amritsar" },
-    { "district_code": "417", "state_code": "23", "name": "Indore",          "geojson_name": "Indore" },
-    { "district_code": "418", "state_code": "23", "name": "Bhopal",          "geojson_name": "Bhopal" },
-    { "district_code": "550", "state_code": "36", "name": "Hyderabad",       "geojson_name": "Hyderabad" },
-    { "district_code": "551", "state_code": "36", "name": "Warangal",        "geojson_name": "Warangal" },
-    { "district_code": "725", "state_code": "37", "name": "Leh",             "geojson_name": "Leh" }
+    { "district_code": "572", "state_code": "29", "name": "Bengaluru Urban", "census_name": "Bangalore" },
+    { "district_code": "583", "state_code": "29", "name": "Bengaluru Rural", "census_name": "Bangalore Rural" },
+    { "district_code": "555", "state_code": "29", "name": "Belagavi", "census_name": "Belgaum" },
+    { "district_code": "577", "state_code": "29", "name": "Mysuru", "census_name": "Mysore" },
+
+    { "district_code": "521", "state_code": "27", "name": "Pune", "census_name": "Pune" },
+    { "district_code": "505", "state_code": "27", "name": "Nagpur", "census_name": "Nagpur" },
+
+    { "district_code": "603", "state_code": "33", "name": "Chennai", "census_name": "Chennai" },
+    { "district_code": "632", "state_code": "33", "name": "Coimbatore", "census_name": "Coimbatore" },
+
+    { "district_code": "41", "state_code": "3", "name": "Ludhiana", "census_name": "Ludhiana" },
+    { "district_code": "49", "state_code": "3", "name": "Amritsar", "census_name": "Amritsar" },
+
+    { "district_code": "439", "state_code": "23", "name": "Indore", "census_name": "Indore" },
+    { "district_code": "444", "state_code": "23", "name": "Bhopal", "census_name": "Bhopal" },
+
+    { "district_code": "532", "state_code": "36", "name": "Adilabad", "census_name": "Adilabad" },
+    { "district_code": "533", "state_code": "36", "name": "Nizamabad", "census_name": "Nizamabad" },
+    { "district_code": "534", "state_code": "36", "name": "Karimnagar", "census_name": "Karimnagar" },
+    { "district_code": "535", "state_code": "36", "name": "Medak", "census_name": "Medak" },
+    { "district_code": "536", "state_code": "36", "name": "Hyderabad", "census_name": "Hyderabad" },
+    { "district_code": "537", "state_code": "36", "name": "Rangareddy", "census_name": "Rangareddy" },
+    { "district_code": "538", "state_code": "36", "name": "Mahbubnagar", "census_name": "Mahbubnagar" },
+    { "district_code": "539", "state_code": "36", "name": "Nalgonda", "census_name": "Nalgonda" },
+    { "district_code": "540", "state_code": "36", "name": "Warangal", "census_name": "Warangal" },
+    { "district_code": "541", "state_code": "36", "name": "Khammam", "census_name": "Khammam" },
+
+    { "district_code": "3", "state_code": "37", "name": "Leh", "census_name": "Leh (ladakh)" },
+    { "district_code": "4", "state_code": "37", "name": "Kargil", "census_name": "Kargil" }
   ]
 }
