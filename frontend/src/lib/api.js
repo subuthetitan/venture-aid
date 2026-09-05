@@ -20,4 +20,7 @@ export const api = {
   channels: (district) => req(`/api/locator/channels?district_code=${district}`),
   reachability: () => req("/api/locator/reachability"),
   ledger: () => req("/api/ledger"),
+ route: ({ from_lat, from_lon, to_channel_id }) =>
+    req(`/api/locator/route?from_lat=${from_lat}&from_lon=${from_lon}&to_channel_id=${to_channel_id}`),
+
 };
