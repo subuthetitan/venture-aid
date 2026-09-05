@@ -1,21 +1,8 @@
 {
   "meta": {
-    "note": "SCA offices and empanelled branches. Addresses transcribed from the sources listed per row. Coordinates manually geocoded from those addresses. Rows with null phone are rows where no number is published.",
+    "note": "SCA offices and empanelled branches. Addresses transcribed from the sources listed per row. Coordinates manually geocoded from those addresses. Rows with null phone are rows where no number is published. Fields prefixed with _ are provenance documentation, not database columns.",
+    "join_key": "district_code is the Census 2011 censuscode",
     "compiled_on": "2026-09-05"
   },
-  "channels": [
-    {
-      "id": "sca-ka-532-01",
-      "kind": "sca",
-      "name": "<real name>",
-      "state_code": "29",
-      "district_code": "532",
-      "address": "<real address>",
-      "phone": null,
-      "lat": 12.9716,
-      "lon": 77.5946,
-      "_source_url": "<page you took it from>",
-      "_verified_on": "2026-09-05"
-    }
-  ]
+  "channels": []
 }
