@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     sarvam_api_key: str = ""
     mappls_client_id: str = ""
     mappls_client_secret: str = ""
+    mappls_static_key: str = ""
 
     class Config:
         env_file = ".env"
