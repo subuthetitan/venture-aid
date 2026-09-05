@@ -11,10 +11,14 @@ from app.schemas import CalculateResponse, ScheduleRow
 # Verified from nsfdc.nic.in scheme pages. Rate is what the SCA charges the
 # beneficiary, not what NSFDC charges the SCA.
 SCHEME_TERMS = {
-    "nsfdc.suvidha":         {"rate": 8.0, "tenure": 60, "moratorium": 6, "max_loan": 900000},
-    "nsfdc.micro_credit":    {"rate": 6.5, "tenure": 36, "moratorium": 3, "max_loan": 125000},
+    # source: nsfdc.nic.in/en/suvidha
+    "nsfdc.suvidha":          {"rate": 8.0, "tenure": 60, "moratorium": 6, "max_loan": 900000},
+    # source: nsfdc.nic.in/en/micro-credit-finance
+    "nsfdc.micro_credit":     {"rate": 6.5, "tenure": 36, "moratorium": 3, "max_loan": 125000},
+    # source: nsfdc.nic.in/en/mahila-samriddhi-yojana
     "nsfdc.mahila_samriddhi": {"rate": 6.0, "tenure": 36, "moratorium": 3, "max_loan": 125000},
-    "nsfdc.laghu_vyavsay":   {"rate": 6.0, "tenure": 72, "moratorium": 6, "max_loan": 200000},
+    # source: nsfdc.nic.in/en/laghu-vyavsay-yojana
+    "nsfdc.laghu_vyavsay":    {"rate": 6.0, "tenure": 72, "moratorium": 6, "max_loan": 200000},
     # Utkarsh deliberately absent: NSFDC's own pages contradict each other on
     # whether Rs 10-50L is loan amount or project cost, and no rate is published.
 }
@@ -75,4 +79,7 @@ def calculate(scheme_id: str, project_cost: int, own_contribution: int = 0,
         total_repayment=_q(monthly * repay_months),
         schedule=schedule,
         subsidy_note=note,
+        # Load-bearing honesty flag: every number above came from arithmetic in
+        # this file. Never set this to 'generated'.
+        provenance="computed",
     )

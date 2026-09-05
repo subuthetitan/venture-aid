@@ -34,6 +34,12 @@ class ApplicantProfile(BaseModel):
     activity: str | None = None
     amount_needed: int | None = None
     age: int | None = None
+    # Gender-restricted schemes (e.g. Mahila Samriddhi Yojana) may only be
+    # recommended to applicants who qualify. Optional and defaulted so every
+    # existing caller keeps working; when it is None, gender-restricted
+    # schemes are EXCLUDED rather than assumed. Expected: 'female' | 'male' |
+    # 'other', matched case-insensitively by consumers.
+    gender: str | None = None
 
 
 class ConditionResult(BaseModel):
