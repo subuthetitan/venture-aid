@@ -1,0 +1,55 @@
+{
+  "activity_id": "tailoring_unit",
+  "activity_label": "Tailoring unit (2 machines)",
+  "narrative": "A two-machine tailoring unit operated by the applicant with one assistant, serving local demand for stitching and alteration work.",
+  "capex_items": [
+    {
+      "item": "Sewing machine (motorised)",
+      "qty": 2,
+      "unit_cost": 18000,
+      "total": 36000
+    },
+    {
+      "item": "Overlock machine",
+      "qty": 1,
+      "unit_cost": 22000,
+      "total": 22000
+    },
+    {
+      "item": "Cutting table and furniture",
+      "qty": 1,
+      "unit_cost": 12000,
+      "total": 12000
+    },
+    {
+      "item": "Initial fabric and accessories",
+      "qty": 1,
+      "unit_cost": 15000,
+      "total": 15000
+    }
+  ],
+  "total_project_cost": 125000,
+  "recommended_scheme_id": "nsfdc.micro_credit",
+  "break_even_months": 14,
+  "document_checklist": [
+    "Caste certificate",
+    "Income certificate",
+    "Residence proof",
+    "Two machine quotations on letterhead",
+    "Bank passbook first page",
+    "Passport photographs (3)"
+  ],
+  "finance": {
+    "sanctionable_amount": 125000,
+    "interest_rate": 6.5,
+    "tenure_months": 36,
+    "moratorium_months": 3,
+    "emi": 4214.47,
+    "total_interest": 12035.34,
+    "total_repayment": 139077.51,
+    "schedule": [],
+    "provenance": "computed",
+    "subsidy_note": null
+  },
+  "pdf_url": null
+}

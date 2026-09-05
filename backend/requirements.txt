@@ -1,0 +1,16 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.35
+psycopg[binary]==3.2.1
+alembic==1.13.2
+pydantic==2.9.2
+pydantic-settings==2.5.2
+httpx==0.27.2
+# Verify the exact package name/version on PyPI before hour 0 (json-logic-py or a fork)
+json-logic-py
+jinja2==3.1.4
+weasyprint==62.3
+selectolax==0.3.21
+pdfplumber==0.11.4
+python-multipart==0.0.9
+pytest==8.3.3

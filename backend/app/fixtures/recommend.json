@@ -1,0 +1,42 @@
+{
+  "seeded": true,
+  "matches": [
+    {
+      "scheme_id": "nsfdc.suvidha",
+      "scheme_name": "Suvidha Loan",
+      "verdict": "CONTRADICTORY_SOURCES",
+      "max_loan": 900000,
+      "interest_rate": 8.0,
+      "disagreement_note": "Two Government of India pages publish different income ceilings for this scheme. At your income of Rs 4,20,000 one says you qualify and the other says you do not. Both links are below, with the dates we checked them.",
+      "conditions": [
+        {
+          "condition_id": "income_ceiling",
+          "passed": null,
+          "human_text": "Annual family income must not exceed the scheme ceiling",
+          "actual": "Rs 4,20,000",
+          "threshold": "Rs 5,00,000 or Rs 3,00,000 - sources disagree",
+          "provenance": [
+            {"source_url": "https://nsfdc.nic.in/about-us-3", "source_authority": "NSFDC", "observed_at": "2026-09-03T00:00:00Z", "effective_from": "2026-01-07"},
+            {"source_url": "https://nsfdc.nic.in/en/how-to-apply", "source_authority": "NSFDC", "observed_at": "2026-09-03T00:00:00Z"},
+            {"source_url": "https://socialjustice.gov.in/schemes/34", "source_authority": "MoSJE", "observed_at": "2026-09-03T00:00:00Z"}
+          ],
+          "counterfactual": "Under the Rs 5,00,000 ceiling you qualify. Under Rs 3,00,000 you do not."
+        },
+        {
+          "condition_id": "caste_category",
+          "passed": true,
+          "human_text": "Applicant must belong to a Scheduled Caste",
+          "actual": "SC",
+          "threshold": "SC",
+          "provenance": [{"source_url": "https://nsfdc.nic.in/about-us-3", "source_authority": "NSFDC", "observed_at": "2026-09-03T00:00:00Z"}]
+        },
+        {
+          "condition_id": "age_criteria",
+          "passed": null,
+          "human_text": "Age criteria",
+          "counterfactual": "Not published on any NSFDC page we could fetch. The Compendium of Schemes PDF returns 404."
+        }
+      ]
+    }
+  ]
+}

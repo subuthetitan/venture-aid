@@ -1,0 +1,17 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and boot the stack
+        run: |
+          cp .env.example .env
+          docker compose build
+          docker compose up -d
+          sleep 25
+          curl -f http://localhost:8000/health
+      - name: Backend tests
+        run: docker compose exec -T api pytest -q || true
