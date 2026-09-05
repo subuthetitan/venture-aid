@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "source": "Local Government Directory (LGD), Ministry of Panchayati Raj",
+    "note": "Subset seeded for the prototype. Codes to be verified against the live LGD directory before demo.",
+    "fetched_on": "2026-09-05"
+  },
+  "states": {
+    "29": { "name": "Karnataka",      "has_sca": true },
+    "27": { "name": "Maharashtra",    "has_sca": true },
+    "33": { "name": "Tamil Nadu",     "has_sca": true },
+    "03": { "name": "Punjab",         "has_sca": true },
+    "23": { "name": "Madhya Pradesh", "has_sca": true },
+    "36": { "name": "Telangana",      "has_sca": false,
+            "no_sca_note": "No State Channelising Agency. Parliamentary Standing Committee on Social Justice and Empowerment, report adopted 10 August 2026 — sourced via press reporting; primary PDF not obtained." },
+    "37": { "name": "Ladakh",         "has_sca": false,
+            "no_sca_note": "No State Channelising Agency. Parliamentary Standing Committee on Social Justice and Empowerment, report adopted 10 August 2026 — sourced via press reporting; primary PDF not obtained." }
+  },
+  "districts": [
+    { "district_code": "532", "state_code": "29", "name": "Bengaluru Urban", "geojson_name": "Bangalore" },
+    { "district_code": "533", "state_code": "29", "name": "Bengaluru Rural", "geojson_name": "Bangalore Rural" },
+    { "district_code": "534", "state_code": "29", "name": "Belagavi",        "geojson_name": "Belgaum" },
+    { "district_code": "535", "state_code": "29", "name": "Mysuru",          "geojson_name": "Mysore" },
+    { "district_code": "519", "state_code": "27", "name": "Pune",            "geojson_name": "Pune" },
+    { "district_code": "520", "state_code": "27", "name": "Nagpur",          "geojson_name": "Nagpur" },
+    { "district_code": "603", "state_code": "33", "name": "Chennai",         "geojson_name": "Chennai" },
+    { "district_code": "604", "state_code": "33", "name": "Coimbatore",      "geojson_name": "Coimbatore" },
+    { "district_code": "042", "state_code": "03", "name": "Ludhiana",        "geojson_name": "Ludhiana" },
+    { "district_code": "043", "state_code": "03", "name": "Amritsar",        "geojson_name": "Amritsar" },
+    { "district_code": "417", "state_code": "23", "name": "Indore",          "geojson_name": "Indore" },
+    { "district_code": "418", "state_code": "23", "name": "Bhopal",          "geojson_name": "Bhopal" },
+    { "district_code": "550", "state_code": "36", "name": "Hyderabad",       "geojson_name": "Hyderabad" },
+    { "district_code": "551", "state_code": "36", "name": "Warangal",        "geojson_name": "Warangal" },
+    { "district_code": "725", "state_code": "37", "name": "Leh",             "geojson_name": "Leh" }
+  ]
+}
