@@ -1,15 +1,27 @@
 """PAIR B. Sanction-Ready: voice -> activity -> costed report -> PDF."""
+import hashlib
+import logging
 import math
+from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 
 from app.schemas import ProjectReport, ReadinessRequest
-from app.services import finance
+from app.services import finance, pdf_generator, transcription
 from app.services.classification import UNRECOGNIZED, classify_activity
 from app.services.cost_templates import (COST_TEMPLATES, capex_total,
                                          get_template, opex_total)
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/readiness", tags=["readiness"])
+
+# Generated PDFs land here and are served back by the download route below.
+# Deliberately a plain local directory: this is an MVP demo, not durable
+# storage, and nothing here survives a container rebuild. *.pdf is already
+# gitignored. Serving through our own route avoids a StaticFiles mount in
+# main.py, which is frozen and owned by the integrator.
+PDF_DIR = Path(__file__).parent.parent / "generated"
 
 # Reused verbatim from fixtures/report.json -- the existing list is reasonable
 # and is not activity-specific, so it stays static for now.
@@ -30,9 +42,23 @@ def _supported_activity_ids() -> list[str]:
 
 
 @router.post("/transcribe")
-async def transcribe(audio: UploadFile = File(...), language: str = "hi"):
-    """Bhashini primary (6s timeout) -> Sarvam Saaras v3 -> cached fixture."""
-    return {"transcript": "मुझे सिलाई का काम शुरू करना है", "provider": "fixture"}
+def transcribe(audio: UploadFile = File(...), language: str = "hi"):
+    """Bhashini primary (6s timeout) -> Sarvam Saaras -> cached fixture.
+
+    Deliberately a sync endpoint: the provider calls are blocking httpx
+    requests, so FastAPI runs this in a threadpool rather than tying up the
+    event loop for up to 6 seconds per provider.
+
+    The response contract is unchanged -- {"transcript", "provider"} -- because
+    the frontend already renders the provider name.
+    """
+    result = transcription.transcribe(
+        audio.file.read(),
+        language=language,
+        filename=audio.filename or "audio.wav",
+        content_type=audio.content_type or "audio/wav",
+    )
+    return {"transcript": result.transcript, "provider": result.provider}
 
 
 # Schemes restricted to women applicants. Mahila Samriddhi Yojana is NSFDC's
@@ -172,7 +198,7 @@ def generate(req: ReadinessRequest) -> ProjectReport:
         f"All cost figures are unverified estimates pending KVIC/NABARD sourcing."
     )
 
-    return ProjectReport(
+    report = ProjectReport(
         activity_id=activity_id,
         activity_label=template["label_en"],
         narrative=narrative,
@@ -182,5 +208,62 @@ def generate(req: ReadinessRequest) -> ProjectReport:
         finance=fin,
         break_even_months=break_even,
         document_checklist=DOCUMENT_CHECKLIST,
-        pdf_url=None,   # PDF generation is a separate, later task.
+        pdf_url=None,
+    )
+    report.pdf_url = _store_pdf(report, req.language)
+    return report
+
+
+def _report_key(report: ProjectReport, language: str) -> str:
+    """Stable id derived from the report's content.
+
+    Same inputs -> same filename, so repeated requests overwrite one file
+    instead of filling the disk with near-identical PDFs. Content-derived
+    rather than random so it stays deterministic, like the rest of Pair B.
+    """
+    basis = f"{report.activity_id}|{language}|{report.total_project_cost}|"             f"{report.recommended_scheme_id}|{report.finance.emi}"
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
+
+
+def _store_pdf(report: ProjectReport, language: str) -> str | None:
+    """Render the report to a PDF on disk and return its download URL.
+
+    Returns None -- leaving pdf_url null -- when PDF generation is unavailable
+    or fails. The JSON report is the primary artefact and must still be
+    returned; a missing font stack is not a reason to fail the whole request.
+    """
+    try:
+        pdf_bytes = pdf_generator.generate_pdf(report, language)
+    except pdf_generator.PdfUnavailable as exc:
+        log.warning("PDF generation unavailable, returning report without pdf_url: %s", exc)
+        return None
+    except Exception:
+        log.exception("PDF generation failed, returning report without pdf_url")
+        return None
+
+    key = _report_key(report, language)
+    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    (PDF_DIR / f"{key}.pdf").write_bytes(pdf_bytes)
+    return f"/api/readiness/pdf/{key}"
+
+
+@router.get("/pdf/{key}")
+def download_pdf(key: str) -> Response:
+    """Serve a previously generated report PDF."""
+    # Reject anything that is not a bare hex key so the path cannot escape
+    # PDF_DIR (no '..', no separators).
+    if not key or len(key) > 64 or any(c not in "0123456789abcdef" for c in key):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    path = PDF_DIR / f"{key}.pdf"
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Report PDF not found. Generated PDFs do not survive a restart; "
+                   "POST /api/readiness again to regenerate it.",
+        )
+    return Response(
+        content=path.read_bytes(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="project-report-{key}.pdf"'},
     )

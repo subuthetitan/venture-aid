@@ -82,3 +82,13 @@ def test_more_keyword_hits_wins():
     assert classify_activity(
         "goat rearing, ten goats, maybe tea later", "en"
     ) == "goat_rearing"
+
+
+# ---------------------------------------------- hardening pass edge cases --
+def test_all_absent_transcript_forms_behave_identically():
+    # The router calls classify_activity(req.transcript or "", ...), but the
+    # function must be safe if handed None directly too. All three forms are
+    # the same user situation: nothing was said.
+    assert classify_activity("", "hi") == UNRECOGNIZED
+    assert classify_activity("   \t\n  ", "hi") == UNRECOGNIZED
+    assert classify_activity(None, "hi") == UNRECOGNIZED

@@ -10,14 +10,16 @@ from app.schemas import CalculateResponse, ScheduleRow
 
 # Verified from nsfdc.nic.in scheme pages. Rate is what the SCA charges the
 # beneficiary, not what NSFDC charges the SCA.
+# URLs below are copied from shared/seed_schemes.json, which Pair A hand-verified
+# against the live pages on 2026-09-03. Do not edit them here; that file is the source.
 SCHEME_TERMS = {
-    # source: nsfdc.nic.in/en/suvidha
+    # source: https://nsfdc.nic.in/en/suvidha-loan
     "nsfdc.suvidha":          {"rate": 8.0, "tenure": 60, "moratorium": 6, "max_loan": 900000},
-    # source: nsfdc.nic.in/en/micro-credit-finance
+    # source: https://nsfdc.nic.in/en/micro-credit-finance
     "nsfdc.micro_credit":     {"rate": 6.5, "tenure": 36, "moratorium": 3, "max_loan": 125000},
-    # source: nsfdc.nic.in/en/mahila-samriddhi-yojana
+    # source: https://nsfdc.nic.in/en/mahila-samriddhi-yojana
     "nsfdc.mahila_samriddhi": {"rate": 6.0, "tenure": 36, "moratorium": 3, "max_loan": 125000},
-    # source: nsfdc.nic.in/en/laghu-vyavsay-yojana
+    # source: https://nsfdc.nic.in/en/laghu-vyavsay-yojana
     "nsfdc.laghu_vyavsay":    {"rate": 6.0, "tenure": 72, "moratorium": 6, "max_loan": 200000},
     # Utkarsh deliberately absent: NSFDC's own pages contradict each other on
     # whether Rs 10-50L is loan amount or project cost, and no rate is published.
@@ -39,7 +41,13 @@ def emi(principal: Decimal, annual_rate: float, months: int) -> Decimal:
 def calculate(scheme_id: str, project_cost: int, own_contribution: int = 0,
               subsidy_amount: int = 0, subsidy_delay_months: int = 0) -> CalculateResponse:
     terms = SCHEME_TERMS[scheme_id]
-    sanctionable = min(project_cost - own_contribution, terms["max_loan"])
+    # Clamp at zero. When own_contribution covers the whole project the
+    # applicant needs no loan; without the clamp this went NEGATIVE and the
+    # response reported a negative sanctionable amount, a negative EMI and a
+    # negative total repayment -- numbers that would have gone onto a bank
+    # submission. A fully self-funded project is sanctionable=0, not a debt
+    # owed to the applicant.
+    sanctionable = max(min(project_cost - own_contribution, terms["max_loan"]), 0)
     principal = Decimal(sanctionable)
 
     # Interest accrues during the moratorium; only principal repayment is deferred.
@@ -65,9 +73,13 @@ def calculate(scheme_id: str, project_cost: int, own_contribution: int = 0,
     note = None
     if subsidy_amount and subsidy_delay_months:
         extra = _q(monthly * subsidy_delay_months)
+        # The figure below is computed. The sentence that used to follow it --
+        # "One documented case ran three years." -- was an uncited factual claim
+        # about a real event and has been removed: see docs/SOURCE_DATABASE.csv
+        # row TIME-01. The delay is framed as the applicant's own hypothetical
+        # (they chose subsidy_delay_months), not as something we assert happened.
         note = (f"If the Rs {subsidy_amount:,} subsidy arrives {subsidy_delay_months} "
-                f"months late, you repay roughly Rs {extra:,.0f} before it lands. "
-                f"One documented case ran three years.")
+                f"months late, you repay roughly Rs {extra:,.0f} before it lands.")
 
     return CalculateResponse(
         sanctionable_amount=int(sanctionable),

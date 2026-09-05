@@ -87,3 +87,76 @@ def test_moratorium_capitalisation_raises_the_repaid_principal():
 def test_zero_rate_scheme_does_not_divide_by_zero():
     # Guards the r == 0 branch in emi(); no live scheme is at 0% today.
     assert emi(Decimal(120000), 0.0, 12) == Decimal(10000)
+
+
+# ---------------------------------------------- hardening pass edge cases --
+def test_project_cost_below_every_ceiling_is_not_capped():
+    # 50,000 is under every scheme's max_loan, so nothing should be trimmed.
+    for scheme_id in SCHEME_TERMS:
+        r = calculate(scheme_id, project_cost=50000)
+        assert r.sanctionable_amount == 50000
+
+
+def test_project_cost_above_every_ceiling_is_capped_to_that_ceiling():
+    for scheme_id, terms in SCHEME_TERMS.items():
+        r = calculate(scheme_id, project_cost=50_000_000)
+        assert r.sanctionable_amount == terms["max_loan"]
+
+
+def test_own_contribution_equal_to_project_cost_gives_zero_not_a_loan():
+    r = calculate("nsfdc.micro_credit", project_cost=100000, own_contribution=100000)
+    assert r.sanctionable_amount == 0
+    assert r.emi == 0.0
+    assert r.total_interest == 0.0
+    assert r.total_repayment == 0.0
+
+
+def test_own_contribution_exceeding_project_cost_never_goes_negative():
+    # REGRESSION: this previously produced sanctionable=-50000, emi=-1685.79
+    # and total_repayment=-55631.05 -- a negative loan on a bank submission.
+    r = calculate("nsfdc.micro_credit", project_cost=100000, own_contribution=150000)
+    assert r.sanctionable_amount == 0
+    assert r.emi >= 0
+    assert r.total_interest >= 0
+    assert r.total_repayment >= 0
+    for row in r.schedule:
+        assert row.opening_balance >= 0
+        assert row.emi >= 0
+        assert row.closing_balance >= 0
+
+
+def test_no_money_field_is_ever_negative_across_a_sweep():
+    # Broad guard: no combination of inputs should produce negative money.
+    for scheme_id in SCHEME_TERMS:
+        for cost in [0, 1000, 125000, 900000, 5_000_000]:
+            for own in [0, 500, cost, cost + 100000]:
+                r = calculate(scheme_id, project_cost=cost, own_contribution=own)
+                assert r.sanctionable_amount >= 0
+                assert r.emi >= 0
+                assert r.total_interest >= 0
+                assert r.total_repayment >= 0
+
+
+def test_subsidy_note_requires_both_amount_and_delay():
+    base = dict(scheme_id="nsfdc.suvidha", project_cost=500000)
+    assert calculate(**base, subsidy_amount=100000, subsidy_delay_months=0).subsidy_note is None
+    assert calculate(**base, subsidy_amount=0, subsidy_delay_months=36).subsidy_note is None
+    assert calculate(**base, subsidy_amount=0, subsidy_delay_months=0).subsidy_note is None
+    assert calculate(**base, subsidy_amount=100000, subsidy_delay_months=36).subsidy_note is not None
+
+
+def test_subsidy_note_makes_no_uncited_factual_claim():
+    """The note must state only the computed figure and the user's own scenario.
+
+    It previously ended "One documented case ran three years." -- an assertion
+    about a real event with no citation anywhere in the repo (docs/SOURCE_DATABASE.csv
+    row TIME-01). This text is shown to applicants, so it must not re-appear.
+    """
+    r = calculate("nsfdc.suvidha", project_cost=500000,
+                  subsidy_amount=100000, subsidy_delay_months=36)
+    note = r.subsidy_note
+    assert note is not None
+    for banned in ("documented case", "ran three years", "three years"):
+        assert banned not in note.lower(), f"uncited factual claim back in note: {banned!r}"
+    # The computed part must survive.
+    assert "100,000" in note and "months late" in note
