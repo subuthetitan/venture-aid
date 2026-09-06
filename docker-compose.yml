@@ -17,12 +17,49 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://ps26092:ps26092@db:5432/ps26092
       OFFLINE_MODE: "false"
-    env_file: [.env]
+    # required: false so a fresh clone runs with `docker compose up` before
+    # anyone has copied .env.example. Without it compose hard-fails on a
+    # missing file, which is the first thing a new team member hits.
+    # Keys are then simply blank, and every service degrades to its fixture.
+    env_file:
+      - path: .env
+        required: false
     depends_on:
       db: {condition: service_healthy}
     ports: ["8000:8000"]
     volumes: ["./backend:/app", "./shared:/shared:ro"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # MERGE FIX (Pair A + Pair B integration).
+    #
+    # Before this, nothing in the repo ever ran `alembic upgrade head` or the
+    # Truth Layer seed. That was harmless while Pair A's routers returned
+    # fixtures, but their real implementation queries `scheme` and
+    # `rule_version`, so on a fresh `docker compose up` both /api/recommend and
+    # /api/truth/contradictions returned HTTP 500 against an empty database --
+    # two of the six screens dead, including the contradiction reveal.
+    #
+    # Migration failure is fatal: nothing works without the tables.
+    # Seed failure is NOT fatal -- it leaves Pair A's endpoints empty but keeps
+    # the API up, so Pair B's calculator and the rest of the shell still demo.
+    # That matches CONTRIBUTING.md's rule that nobody is ever fully blocked.
+    # The seed is idempotent (it deletes and re-inserts), so restarts are safe.
+    #
+    # NOTE: every line below sits at the SAME indentation on purpose. A YAML
+    # folded scalar only folds newlines into spaces while the indentation is
+    # uniform; indenting a continuation line further preserves the newline and
+    # produces a shell syntax error on the following `&&`.
+    #
+    # Pair C's routers (ledger.py, locator.py) are DB-backed too, and their
+    # loader `app/fixtures/load_pair_c.py` had the same problem Pair A's seed
+    # did: it exists, it is idempotent, and nothing ever ran it. Without it
+    # /api/ledger, /api/locator/channels and /api/locator/reachability all
+    # return empty against a migrated-but-unseeded database.
+    command: >
+      sh -c "alembic upgrade head &&
+      (python -m app.services.seed_truth_layer ||
+      echo '[WARN] Truth Layer seed failed. /api/recommend and /api/truth will be empty.') &&
+      (python -m app.fixtures.load_pair_c ||
+      echo '[WARN] Pair C seed failed. /api/ledger and /api/locator will be empty.') &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   web:
     build: ./frontend
