@@ -619,3 +619,42 @@ three invocation styles.
 reports what the tests genuinely do inside the container without blocking the
 PR — notably the 8 WeasyPrint tests, which are skipped locally but should
 actually execute there. That result should decide whether `|| true` goes.
+
+### 8.7 PDF generation was broken in the container (found once tests actually ran)
+
+With §8.6 fixed, the suite ran in CI for the first time and reported
+**8 failed, 159 passed, 1 skipped**. All eight failures are the WeasyPrint PDF
+tests — the ones that skip locally and had therefore never executed anywhere.
+
+```
+weasyprint/pdf/stream.py:246: AttributeError: 'super' object has no attribute 'transform'
+```
+
+**Cause.** `weasyprint==62.3` declares `pydyf>=0.10.0` with no upper bound, so a
+fresh image build resolved **pydyf 0.12.1**, which removed `pydyf.Stream.transform`.
+WeasyPrint's `Stream.transform` calls `super().transform(...)`, so every render
+died. Verified by installing each version and introspecting: `Stream.transform`
+is present in pydyf 0.10.0 and 0.11.0, absent in 0.12.1.
+
+**Why nobody saw it.** Three independent blindfolds stacked:
+
+1. WeasyPrint's native stack will not install on Windows, so all eight tests
+   `skip` locally — the suite reported green.
+2. CI was collecting zero tests (§8.6).
+3. `_store_pdf()` catches every exception and returns `pdf_url=None` by design,
+   so the API degraded to "no PDF" **silently** instead of failing. The
+   Sanction-Ready PDF — the headline artefact of that feature — was simply
+   absent, and the frontend rendered its disabled-button fallback as though
+   that were normal.
+
+**Fixed** by pinning `pydyf==0.10.0`, the release weasyprint 62.3 was built
+against.
+
+> Wider lesson for the integrator: `requirements.txt` pins direct dependencies
+> but not transitive ones, so any rebuild can pull a breaking transitive at any
+> time. This is the second time an unpinned dependency has bitten
+> (`json-logic-py` was the first). A lockfile would close the class.
+
+**This fix cannot be verified locally** — WeasyPrint does not run on this
+machine. CI is now the only environment that can confirm it, which is precisely
+what §8.6 restored.
