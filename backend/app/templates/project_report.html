@@ -1,0 +1,250 @@
+{#
+  PAIR B. Sanction-Ready project report template.
+
+  ===========================================================================
+  FORMAT DISCLAIMER -- READ BEFORE DESCRIBING THIS DOCUMENT TO ANYONE
+  ===========================================================================
+  This layout is modeled on standard DPR (Detailed Project Report) conventions
+  -- a cost sheet, a financing summary and a document checklist -- because
+  those sections are what a loan file generally needs to contain.
+
+  It is NOT verified against the actual published PMEGP or Mudra DPR template.
+  Nobody on this team has checked it against a real reference document. Do not
+  claim on stage, in the README, or to a judge that this "matches the PMEGP
+  format" or "follows the Mudra DPR structure". It does not, as far as we know.
+
+  TODO(pair-b): obtain a real published PMEGP/Mudra DPR reference document and
+  either align this template to it or keep this disclaimer permanently.
+
+  Deliberately contains NO government seal, emblem, logo, letterhead, or
+  department name. This is an applicant-prepared working document, not an
+  official form, and must not be dressed up to look like one.
+  ===========================================================================
+#}
+<meta charset="utf-8">
+<title>Project Report - {{ activity_title }}</title>
+<style>
+  /* Font stack: Latin, Devanagari and Kannada faces listed side by side so a
+     single paragraph can mix scripts without the layout breaking. WeasyPrint
+     falls through this list per-character, so a missing face degrades to the
+     next entry rather than failing the render.
+     NOTE: whether Devanagari CONJUNCTS shape correctly depends on the Pango /
+     HarfBuzz stack and the installed Noto faces at runtime, not on this CSS.
+     See tests/test_pdf_generator.py for the conjunct check. */
+  @page {
+    size: A4;
+    margin: 18mm 16mm 20mm 16mm;
+    @bottom-center {
+      content: "First draft for human review, not an approval  —  Page "
+               counter(page) " of " counter(pages);
+      font-size: 8pt;
+      color: #666;
+    }
+  }
+
+  html {
+    font-family: "Noto Sans", "Noto Sans Devanagari", "Noto Sans Kannada",
+                 "Nirmala UI", "DejaVu Sans", sans-serif;
+    font-size: 10pt;
+    line-height: 1.45;
+    color: #1a1a1a;
+  }
+
+  h1 { font-size: 16pt; margin: 0 0 2mm 0; }
+  h2 {
+    font-size: 11pt;
+    margin: 7mm 0 2mm 0;
+    padding-bottom: 1mm;
+    border-bottom: 0.6pt solid #999;
+  }
+
+  .subtitle { font-size: 10pt; color: #444; margin: 0 0 1mm 0; }
+  .meta { font-size: 8.5pt; color: #666; }
+  .rule { border-bottom: 1.2pt solid #1a1a1a; margin: 3mm 0 0 0; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 2mm; }
+  th, td {
+    border: 0.5pt solid #bbb;
+    padding: 1.6mm 2mm;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #f0f0f0; font-weight: 600; }
+  .num { text-align: right; white-space: nowrap; }
+  tr.total td { font-weight: 700; background: #f7f7f7; }
+
+  /* Two-column definition grid for the financing terms. */
+  .terms { width: 100%; border-collapse: collapse; margin-top: 2mm; }
+  .terms td { border: 0.5pt solid #bbb; padding: 1.6mm 2mm; }
+  .terms td.k { background: #f7f7f7; width: 32%; }
+
+  ul.checklist { margin: 2mm 0 0 0; padding-left: 0; list-style: none; }
+  ul.checklist li { padding: 1.2mm 0 1.2mm 7mm; text-indent: -7mm; }
+  ul.checklist li::before { content: "\2610\00a0\00a0"; }
+
+  .narrative { margin-top: 2mm; text-align: justify; }
+
+  .caveat {
+    margin-top: 7mm;
+    border: 0.8pt solid #8a6d00;
+    background: #fff8e1;
+    padding: 3mm;
+    font-size: 8.5pt;
+    color: #4a3b00;
+  }
+  .caveat strong { display: block; margin-bottom: 1mm; }
+
+  .footnote { margin-top: 4mm; font-size: 8pt; color: #666; }
+
+  /* Required by docs/ARCHITECTURE.md:235 -- the output must be labelled a first
+     draft for human review, not an approval. Deliberately the most prominent
+     element after the title: solid dark bar, not fine print, so it cannot be
+     mistaken for or detached from the document. Repeated on every page via the
+     running footer below. */
+  .draft-banner {
+    margin-top: 4mm;
+    padding: 2.5mm 3mm;
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 10.5pt;
+    font-weight: 700;
+    letter-spacing: 0.3pt;
+    text-align: center;
+    text-transform: uppercase;
+  }
+  .draft-banner span {
+    display: block;
+    margin-top: 1mm;
+    font-size: 8pt;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+</style>
+
+<h1>{{ activity_title }}</h1>
+{% if activity_subtitle %}<p class="subtitle">{{ activity_subtitle }}</p>{% endif %}
+<p class="meta">
+  Project report &middot; Generated on {{ generated_on }}
+  {%- if report.activity_id %} &middot; Activity code: {{ report.activity_id }}{% endif %}
+</p>
+<div class="rule"></div>
+
+<div class="draft-banner">
+  First draft for human review &mdash; not an approval
+  <span>
+    Prepared by the applicant with assistance. Every figure and document below
+    must be checked by a human before this is submitted to any lender.
+  </span>
+</div>
+
+<h2>1. Summary</h2>
+<p class="narrative">{{ report.narrative }}</p>
+
+<h2>2. Capital expenditure</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th class="num">Qty</th>
+      <th class="num">Unit cost (Rs)</th>
+      <th class="num">Amount (Rs)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in report.capex_items %}
+    <tr>
+      <td>{{ item.item }}</td>
+      <td class="num">{{ item.qty }}</td>
+      <td class="num">{{ item.unit_cost | rupees }}</td>
+      <td class="num">{{ (item.total if item.total is defined else item.qty * item.unit_cost) | rupees }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="total">
+      <td colspan="3">Total project cost</td>
+      <td class="num">{{ report.total_project_cost | rupees }}</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>3. Proposed financing</h2>
+<table class="terms">
+  <tr>
+    <td class="k">Scheme</td>
+    <td>{{ report.recommended_scheme_id }}</td>
+  </tr>
+  <tr>
+    <td class="k">Sanctionable amount</td>
+    <td>Rs {{ report.finance.sanctionable_amount | rupees }}</td>
+  </tr>
+  <tr>
+    <td class="k">Interest rate</td>
+    <td>{{ report.finance.interest_rate }}% per annum (reducing balance)</td>
+  </tr>
+  <tr>
+    <td class="k">Tenure</td>
+    <td>
+      {{ report.finance.tenure_months }} months,
+      including a {{ report.finance.moratorium_months }}-month moratorium
+    </td>
+  </tr>
+  <tr>
+    <td class="k">Monthly instalment (EMI)</td>
+    <td>Rs {{ report.finance.emi | rupees }}</td>
+  </tr>
+  <tr>
+    <td class="k">Total interest</td>
+    <td>
+      Rs {{ report.finance.total_interest | rupees }}
+      {%- if report.finance.moratorium_interest and report.finance.moratorium_interest > 0 %}
+      <br><span style="font-size: 8.5pt; color: #444;">
+        Includes Rs {{ report.finance.moratorium_interest | rupees }} accrued
+        during the {{ report.finance.moratorium_months }}-month moratorium and
+        added to the balance before the first instalment.
+      </span>
+      {%- endif %}
+    </td>
+  </tr>
+  <tr>
+    <td class="k">Total repayment</td>
+    <td>Rs {{ report.finance.total_repayment | rupees }}</td>
+  </tr>
+  <tr>
+    <td class="k">Estimated break-even</td>
+    <td>
+      {% if report.break_even_months and report.break_even_months > 0 %}
+        {{ report.break_even_months }} months
+      {% else %}
+        Not established &mdash; this unit does not show a monthly surplus on
+        the estimates used here.
+      {% endif %}
+    </td>
+  </tr>
+</table>
+{% if report.finance.subsidy_note %}
+<p class="narrative">{{ report.finance.subsidy_note }}</p>
+{% endif %}
+
+<h2>4. Document checklist</h2>
+<ul class="checklist">
+  {% for doc in report.document_checklist %}
+  <li>{{ doc }}</li>
+  {% endfor %}
+</ul>
+
+<div class="caveat">
+  <strong>Cost figures are unverified estimates.</strong>
+  The capital and operating costs and the revenue estimate in this report are
+  placeholders pending sourcing from published KVIC / NABARD model profiles.
+  They have not been verified against any published document and must not be
+  relied on as accurate costs.
+  The financing figures in section 3 are computed arithmetically from the
+  project cost and the scheme terms; no figure in this report was produced by
+  a language model.
+</div>
+
+<p class="footnote">
+  Layout modeled on standard DPR conventions. Not verified against the
+  published PMEGP or Mudra Detailed Project Report format. This is an
+  applicant-prepared working document, not an official form.
+</p>

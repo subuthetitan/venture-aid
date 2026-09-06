@@ -10,6 +10,19 @@ httpx==0.27.2
 panzi-json-logic==1.0.1
 jinja2==3.1.4
 weasyprint==62.3
+# PIN REQUIRED. weasyprint 62.3 declares `pydyf>=0.10.0` with NO upper bound, so
+# a fresh `docker compose build` resolved pydyf 0.12.1, which REMOVED
+# pydyf.Stream.transform. weasyprint/pdf/stream.py calls super().transform(...),
+# so every PDF render died with:
+#     AttributeError: 'super' object has no attribute 'transform'
+# This was invisible locally (WeasyPrint's native stack will not install on
+# Windows, so those tests skip) and invisible in CI (pytest was collecting zero
+# tests). _store_pdf() catches the exception and returns pdf_url=None, so the API
+# degraded to "no PDF" silently rather than erroring -- the Sanction-Ready PDF,
+# the headline output of that feature, was simply gone.
+# Verified: Stream.transform exists in pydyf 0.10.0 and 0.11.0, absent in 0.12.1.
+# 0.10.0 is the release weasyprint 62.3 was built against.
+pydyf==0.10.0
 selectolax==0.3.21
 pdfplumber==0.11.4
 python-multipart==0.0.9
