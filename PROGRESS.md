@@ -586,3 +586,36 @@ GET  /api/ledger                 [C] -> 500  <- see below
       whose backend works and whose screen does not exist.
 - [ ] `SanctionReady.jsx` still never calls `/api/readiness/transcribe` (§2).
 - [ ] CI still runs `pytest -q || true`.
+
+### 8.6 CI was running ZERO tests (found by PR #14's own CI run)
+
+The first CI run on PR #14 went green. Reading the step logs rather than the
+badge showed the "Backend tests" step had actually printed:
+
+```
+Interrupted: 9 errors during collection
+E   ModuleNotFoundError: No module named 'app'
+```
+
+Every test module failed to import, pytest ran **zero** tests, and
+`pytest -q || true` swallowed the non-zero exit so the step reported success.
+
+**Cause.** Test modules do `from app... import ...`, which needs `backend/` on
+`sys.path`. `python -m pytest` adds the current directory automatically — which
+is how the suite has always been run by hand, so it always passed. The bare
+`pytest` console script does **not**, and that is exactly how CI invokes it
+(`docker compose exec -T api pytest -q`). Reproduced locally: `python -m pytest`
+gives 160 passed, `pytest` gives 9 collection errors, same tree.
+
+This was never a Pair B problem specifically — **the suite has never run in CI
+for any pair since the repo was created.** It was invisible because `|| true`
+turned a total failure into a green check.
+
+**Fixed** by adding `backend/pytest.ini` with `pythonpath = .`, so the suite
+behaves identically by hand, in CI, and in the container. Verified against all
+three invocation styles.
+
+`|| true` is deliberately left in place for this round, so that the next CI run
+reports what the tests genuinely do inside the container without blocking the
+PR — notably the 8 WeasyPrint tests, which are skipped locally but should
+actually execute there. That result should decide whether `|| true` goes.
