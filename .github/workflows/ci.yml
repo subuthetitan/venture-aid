@@ -60,7 +60,18 @@ jobs:
           python3 -c "import json,sys; c=json.load(open('/tmp/chan.json')); sys.exit(0 if c else 'FAIL: /api/locator/channels is empty - Pair C seed did not run')"
 
       - name: Backend tests
-        run: docker compose exec -T api pytest -q || true
+        # `|| true` removed. It was here so a work-in-progress suite could not
+        # block a merge, but it also meant pytest exiting non-zero was
+        # indistinguishable from it passing -- and that is exactly what
+        # happened: the suite failed to collect ANY test for the entire life of
+        # the repo (ModuleNotFoundError: No module named 'app') and this step
+        # reported success every time. That in turn hid PDF generation being
+        # broken in every container build.
+        #
+        # Collection is fixed (backend/pytest.ini) and the suite passes
+        # 167/168 in the container, the one skip being a deliberate
+        # inverse-condition test. Tests are a real gate from here on.
+        run: docker compose exec -T api pytest -q
 
       - name: Show API logs on failure
         if: failure()

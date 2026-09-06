@@ -465,12 +465,10 @@ before the case that needed it existed.
 
 - [ ] **Pair A has no frontend.** `Recommender.jsx` and `TruthLayer.jsx` are still
       `Placeholder`. The backend reveal works and nobody can see it.
-- [ ] Pair C's map/locator/ledger work is on `main`, **not** on `pairA` or
-      `teamb`. A three-way integration is still ahead; this pass only proves
-      A + B.
-- [ ] CI still runs `pytest -q || true`, so tests cannot fail the build. Left
-      alone deliberately — that is the integrator's policy call, not Pair B's —
-      but with 160 passing tests it is worth revisiting.
+- [x] ~~Pair C's map/locator/ledger work is on `main`, not on `pairA` or
+      `teamb`~~ — the three-way integration landed in §8.
+- [x] ~~CI still runs `pytest -q || true`~~ — removed in 8.8, once the suite
+      was proven to actually run and pass in the container.
 - [ ] `psycopg` is now required to *import* `app.main`, because Pair A's routers
       pull in `app/db.py`, which calls `create_engine()` at module scope. It is
       already in `requirements.txt`, so this only bites minimal hand-rolled
@@ -585,7 +583,7 @@ GET  /api/ledger                 [C] -> 500  <- see below
       `Placeholder`. With all three pairs merged, this is now the only feature
       whose backend works and whose screen does not exist.
 - [ ] `SanctionReady.jsx` still never calls `/api/readiness/transcribe` (§2).
-- [ ] CI still runs `pytest -q || true`.
+- [x] ~~CI still runs `pytest -q || true`~~ — removed in 8.8.
 
 ### 8.6 CI was running ZERO tests (found by PR #14's own CI run)
 
@@ -615,10 +613,9 @@ turned a total failure into a green check.
 behaves identically by hand, in CI, and in the container. Verified against all
 three invocation styles.
 
-`|| true` is deliberately left in place for this round, so that the next CI run
-reports what the tests genuinely do inside the container without blocking the
-PR — notably the 8 WeasyPrint tests, which are skipped locally but should
-actually execute there. That result should decide whether `|| true` goes.
+`|| true` was deliberately left in place for that round, so the next CI run
+could report what the tests genuinely do inside the container without blocking
+the PR. It did exactly that (see 8.7), and has since been removed — see 8.8.
 
 ### 8.7 PDF generation was broken in the container (found once tests actually ran)
 
@@ -658,3 +655,32 @@ against.
 **This fix cannot be verified locally** — WeasyPrint does not run on this
 machine. CI is now the only environment that can confirm it, which is precisely
 what §8.6 restored.
+
+### 8.8 `pytest -q || true` removed — tests are a real gate now
+
+With 8.6 and 8.7 fixed, CI reports **167 passed, 1 skipped** in the container.
+The single skip is `test_pdf_generator.py:189`, the inverse-condition test that
+asserts the `PdfUnavailable` fallback and correctly skips when WeasyPrint *is*
+available. Everything that can run, runs, and passes — including the four
+Devanagari conjunct cases `ARCHITECTURE.md CHANGE 4` asked for on day zero,
+which until now had never executed anywhere.
+
+`|| true` is therefore gone. The justification for it — "a work-in-progress
+suite should not block a merge" — was reasonable at hour zero and became
+actively harmful: it made a non-zero pytest exit indistinguishable from a pass,
+which is how a **total collection failure survived the entire life of the
+repo**, which in turn hid PDF generation being broken in every container build.
+
+Evidence-first, in order:
+
+| Step | What CI reported | What was actually true |
+|---|---|---|
+| before 8.6 | `Backend tests: success` | 0 tests ran |
+| after 8.6 | `Backend tests: success` | 8 failed, 159 passed |
+| after 8.7 | `Backend tests: success` | 167 passed, 1 skipped |
+| after 8.8 | `Backend tests: success` | 167 passed — **and a failure would now be red** |
+
+Note for the other pairs: a failing test will now block your PR. That is the
+point. If something is genuinely work-in-progress, mark it `xfail` or `skip`
+with a reason, so the gap is visible in the run output instead of hidden behind
+a swallowed exit code.
