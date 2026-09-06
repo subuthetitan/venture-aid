@@ -28,7 +28,30 @@ services:
       db: {condition: service_healthy}
     ports: ["8000:8000"]
     volumes: ["./backend:/app", "./shared:/shared:ro"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # MERGE FIX (Pair A + Pair B integration).
+    #
+    # Before this, nothing in the repo ever ran `alembic upgrade head` or the
+    # Truth Layer seed. That was harmless while Pair A's routers returned
+    # fixtures, but their real implementation queries `scheme` and
+    # `rule_version`, so on a fresh `docker compose up` both /api/recommend and
+    # /api/truth/contradictions returned HTTP 500 against an empty database --
+    # two of the six screens dead, including the contradiction reveal.
+    #
+    # Migration failure is fatal: nothing works without the tables.
+    # Seed failure is NOT fatal -- it leaves Pair A's endpoints empty but keeps
+    # the API up, so Pair B's calculator and the rest of the shell still demo.
+    # That matches CONTRIBUTING.md's rule that nobody is ever fully blocked.
+    # The seed is idempotent (it deletes and re-inserts), so restarts are safe.
+    #
+    # NOTE: every line below sits at the SAME indentation on purpose. A YAML
+    # folded scalar only folds newlines into spaces while the indentation is
+    # uniform; indenting a continuation line further preserves the newline and
+    # produces a shell syntax error on the following `&&`.
+    command: >
+      sh -c "alembic upgrade head &&
+      (python -m app.services.seed_truth_layer ||
+      echo '[WARN] Truth Layer seed failed. /api/recommend and /api/truth will be empty; Pair B endpoints are unaffected.') &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   web:
     build: ./frontend

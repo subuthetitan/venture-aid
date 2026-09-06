@@ -13,5 +13,47 @@ jobs:
           docker compose up -d
           sleep 25
           curl -f http://localhost:8000/health
+
+      # MERGE FIX (Pair A + Pair B integration).
+      #
+      # CI used to curl /health and nothing else. /health is a static dict that
+      # touches no database, so it stayed green while /api/recommend and
+      # /api/truth/contradictions were both returning HTTP 500 against an
+      # unmigrated, unseeded database -- a broken merge that looked healthy.
+      #
+      # These smoke checks hit one endpoint per pair, so the next time the
+      # stack boots without its tables, CI says so instead of passing.
+      - name: Smoke-test one endpoint per pair
+        run: |
+          set -euo pipefail
+
+          # Pair A -- needs `alembic upgrade head` AND the Truth Layer seed.
+          curl -fsS -X POST http://localhost:8000/api/recommend \
+            -H 'Content-Type: application/json' \
+            -d '{"family_income":420000,"state_code":"KA","district_code":"29"}' \
+            -o /tmp/recommend.json
+          # A response with zero matches means the seed did not run, which the
+          # HTTP status alone will not tell us.
+          python3 -c "import json,sys; m=json.load(open('/tmp/recommend.json'))['matches']; sys.exit(0 if m else 'FAIL: /api/recommend returned no matches - Truth Layer seed did not run')"
+
+          # Pair A -- the contradiction reveal, the centrepiece of the demo.
+          curl -fsS http://localhost:8000/api/truth/contradictions -o /tmp/truth.json
+          python3 -c "import json,sys; c=json.load(open('/tmp/truth.json')); sys.exit(0 if c else 'FAIL: no live contradictions - rule_version is empty')"
+
+          # Pair B -- pure arithmetic, no database.
+          curl -fsS -X POST http://localhost:8000/api/calculate \
+            -H 'Content-Type: application/json' \
+            -d '{"scheme_id":"nsfdc.suvidha","project_cost":500000}' \
+            -o /tmp/calc.json
+          python3 -c "import json,sys; d=json.load(open('/tmp/calc.json')); sys.exit(0 if abs(d['sanctionable_amount']+d['total_interest']-d['total_repayment'])<1 else 'FAIL: repayment does not reconcile')"
+
+          # Pair C -- still fixtures; assert only that they answer.
+          curl -fsS http://localhost:8000/api/ledger > /dev/null
+          curl -fsS http://localhost:8000/api/locator/reachability > /dev/null
+
       - name: Backend tests
         run: docker compose exec -T api pytest -q || true
+
+      - name: Show API logs on failure
+        if: failure()
+        run: docker compose logs api

@@ -25,8 +25,8 @@ implementations behind them; A and C are still day-zero fixtures, exactly as
 
 | Feature | Pair | Backend | Frontend | Verdict |
 |---|---|---|---|---|
-| Smart Scheme Recommender | A | fixture (`fixtures/recommend.json`) | `Placeholder` | not started |
-| Scheme Truth Layer | A | hardcoded contradiction in the router | `Placeholder` | not started |
+| Smart Scheme Recommender | A | **real** (DB-backed, seeded) | `Placeholder` | backend done, no UI |
+| Scheme Truth Layer | A | **real** (`rule_version` group-by) | `Placeholder` | backend done, no UI |
 | **Financial Calculator** | **B** | **real, tested** | **real, complete** | **done** |
 | **Sanction-Ready** | **B** | **real except the voice UI** | **real except the mic** | **~85%** |
 | Partner Locator & Router | C | returns `[]` | `Placeholder` | not started |
@@ -36,13 +36,13 @@ implementations behind them; A and C are still day-zero fixtures, exactly as
 
 | Thing | State |
 |---|---|
-| Alembic migration `0001_initial` | exists; **never runs** — compose has no migration step and no service touches the DB |
+| Alembic migrations | `0001_initial` replaced by Pair A/C's `19bea6c2f9a4`; **now runs on API start** (see §7) |
 | `worker` (APScheduler) service | in `ARCHITECTURE.md`, not in `docker-compose.yml` |
-| `shared/seed_schemes.json` | exists, read by nothing |
+| `shared/seed_schemes.json` | now the source for Pair A's seed **and** contract-tested against `SCHEME_TERMS` (§7) |
 | `react-i18next` | installed, never imported — all UI copy is hardcoded English |
 | `@tanstack/react-query` | provider mounted in `main.jsx`, no page uses it |
 | `maplibre-gl` | installed, never imported |
-| `json-logic-py` in `requirements.txt` | still unpinned, still carrying its "verify the package name" comment (Pair A) |
+| `json-logic-py` in `requirements.txt` | **resolved** by Pair A — pinned to `panzi-json-logic==1.0.1` |
 
 ---
 
@@ -336,10 +336,142 @@ These are deliberate, documented in the code, and **must not be quietly dropped*
 
 ### Other pairs — for the integrator, not for us to build
 
-- [ ] Pair A: real eligibility engine; `_sources_disagree()` is still `return False`,
-      so `CONTRADICTORY_SOURCES` can never fire — **the demo's centrepiece reveal
-      does not work.** Seed `rule_version`; replace the recommend fixture.
+- [x] ~~Pair A: real eligibility engine~~ — **done on `pairA`, merged in §7.**
+      `CONTRADICTORY_SOURCES` now fires: Suvidha at ₹4.2 lakh returns the
+      ₹5L / ₹3L / ₹3L split across three live government URLs. The reveal works.
+- [ ] Pair A: build `Recommender.jsx` and `TruthLayer.jsx` — the backend is real
+      but both screens are still `Placeholder`, so none of it is demoable yet.
 - [ ] Pair C: map, channels, routing, ledger, reachability layers — all still empty.
 - [ ] Integrator: pin `json-logic-py`; decide how migrations run (compose has no
       migration step); add the `worker` service or cut it from the architecture doc.
 - [ ] Shell: `react-i18next` scaffolded but unused — all copy is English.
+
+---
+
+## 7. Merge with Pair A (`pairA` @ `ed777df`)
+
+**Verdict: the two branches merge cleanly, but the merged product was broken at
+runtime until the three fixes below.** Git reported no conflicts, every test
+passed, and two of the six screens still returned HTTP 500.
+
+### 7.1 What the merge looks like
+
+The merge base is `ac2c7c0 Initial commit` — `teamb` and `pairA` share nothing
+after it. Despite that:
+
+| | Files changed vs. base | Overlap |
+|---|---|---|
+| `pairA` (incl. Pair C work merged into it) | 14 | **0** |
+| `teamb` | 30 | **0** |
+
+Zero file-level overlap, so `git merge` is automatic. Pair A's work is
+**backend-only** — they never touched `lib/api.js`, `schemas/__init__.py`, or any
+page, which is why nothing collided. `0001_initial.py` is deleted and replaced by
+Pair A/C's `19bea6c2f9a4_initial_schema_all_pairs.py`; the revision chain is
+coherent (single revision, `down_revision = None`).
+
+### 7.2 The problem git could not see
+
+`git merge` succeeded and the full suite passed — **because no test and no CI
+check ever booted the stack against a real database.**
+
+Pair A's `recommend.py` and `truth.py` used to return fixtures. Their real
+versions query the `scheme` and `rule_version` tables. Nothing in this repo has
+ever run `alembic upgrade head` or the Truth Layer seed — which was harmless
+while those routers were fixtures, and fatal the moment they were not.
+
+Measured against an empty database, i.e. what `docker compose up` produced:
+
+```
+GET  /health                    -> 200      <-- the only thing CI checked
+POST /api/calculate             -> 200      (Pair B, no DB)
+POST /api/recommend             -> 500      relation "scheme" does not exist
+GET  /api/truth/contradictions  -> 500
+```
+
+So CI would have gone **green** on a merge that killed the Recommender, the Truth
+Layer, and the contradiction reveal the demo is built around.
+
+### 7.3 Fixes added to make the merge work
+
+**1. `docker-compose.yml` — run migrations and the seed before uvicorn.**
+The `api` service now runs `alembic upgrade head`, then the Truth Layer seed,
+then the server. Migration failure is fatal (nothing works without tables); seed
+failure is **not** — it logs a warning and still starts, so Pair B's calculator
+and the shell keep working. The seed is idempotent, so restarts are safe.
+
+> Sub-bug found while writing it: the first version used a YAML folded scalar
+> with an indented continuation line. YAML only folds newlines into spaces at
+> **uniform** indentation, so the rendered command kept a literal newline and
+> `sh` would have died on the following `&&`. Caught with
+> `docker compose config` + `sh -n`; all lines are now at one indent level and
+> the rendered string is verified newline-free and syntactically valid.
+
+**2. `.github/workflows/ci.yml` — smoke-test one endpoint per pair.**
+CI curled `/health` and nothing else, and `/health` is a static dict that touches
+no database — which is exactly why 7.2 was invisible. CI now exercises
+`/api/recommend`, `/api/truth/contradictions`, `/api/calculate`, `/api/ledger` and
+`/api/locator/reachability`, and asserts on *content*, not just status: a
+recommend response with zero matches fails the build, because that means the seed
+did not run even though the HTTP status was 200. Also added `docker compose logs
+api` on failure.
+
+**3. `backend/tests/test_seed_contract.py` — new, 11 tests.**
+`finance.py` claims in its docstring that `shared/seed_schemes.json` is the source
+of truth for scheme terms. Nothing enforced it, and nothing *could* before the
+merge — the two files lived on branches sharing only the initial commit. Now they
+are in one tree, so it is checked: every scheme in `SCHEME_TERMS` must exist in the
+seed file with a matching rate and ceiling, retired schemes must never be
+calculable, and the retired scheme Pair A's recommender can emit must return a
+clean 422 from `/api/calculate` rather than a 500.
+
+Verified non-vacuous by mutation: changing Suvidha's rate from 8.0 to 9.0 fails
+with `nsfdc.suvidha: finance.py says 9.0%, seed_schemes.json says 8.0%`.
+
+### 7.4 Where the two pairs already agreed
+
+Worth recording, because it means no reconciliation was needed: Pair A's
+hand-verified seed file and Pair B's `SCHEME_TERMS` **already matched exactly** on
+all four active schemes — rates 8.0 / 6.5 / 6.0 / 6.0 and ceilings
+₹9,00,000 / ₹1,25,000 / ₹1,25,000 / ₹2,00,000. Test 3 above now locks that in.
+
+One genuine cross-pair interaction fell out in Pair B's favour: the seed contains
+a **retired** scheme (`nsfdc.term_loan`) which Pair A's recommender deliberately
+surfaces, and which `SCHEME_TERMS` does not model. Handing that id to
+`/api/calculate` returns the 422 `UNKNOWN_SCHEME` added in §3.4 — the fix landed
+before the case that needed it existed.
+
+### 7.5 Merged state, verified
+
+| Check | Result |
+|---|---|
+| `git merge origin/pairA` | clean, no conflicts |
+| Backend suite | **160 passed, 8 skipped** (142 Pair B + 7 Pair A + 11 new) |
+| `npm run build` | clean |
+| `docker compose config` | valid; api command verified newline-free and `sh -n` clean |
+| `/api/recommend` @ ₹4.2 lakh | **200**, 5 matches, `CONTRADICTORY_SOURCES` on Suvidha |
+| `/api/truth/contradictions` | **200**, 1 contradiction, positions ₹5L / ₹3L / ₹3L |
+
+**The contradiction reveal works.** Demo beat 2 is live end to end.
+
+> Migrations + seed were exercised against SQLite rather than Postgres, because
+> the Docker daemon was not running on this machine. That required a one-line
+> `BigInteger -> INTEGER` shim, since SQLite only auto-increments
+> `INTEGER PRIMARY KEY` while Postgres uses `BIGSERIAL`. The shim is in the
+> throwaway verification script only — **not** in the repo. Someone should still
+> run `docker compose up` once against real Postgres before demo day.
+
+### 7.6 Still open after the merge
+
+- [ ] **Pair A has no frontend.** `Recommender.jsx` and `TruthLayer.jsx` are still
+      `Placeholder`. The backend reveal works and nobody can see it.
+- [ ] Pair C's map/locator/ledger work is on `main`, **not** on `pairA` or
+      `teamb`. A three-way integration is still ahead; this pass only proves
+      A + B.
+- [ ] CI still runs `pytest -q || true`, so tests cannot fail the build. Left
+      alone deliberately — that is the integrator's policy call, not Pair B's —
+      but with 160 passing tests it is worth revisiting.
+- [ ] `psycopg` is now required to *import* `app.main`, because Pair A's routers
+      pull in `app/db.py`, which calls `create_engine()` at module scope. It is
+      already in `requirements.txt`, so this only bites minimal hand-rolled
+      virtualenvs. Not fixed; noted.
