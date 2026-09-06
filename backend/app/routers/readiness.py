@@ -23,6 +23,9 @@ router = APIRouter(prefix="/api/readiness", tags=["readiness"])
 # main.py, which is frozen and owned by the integrator.
 PDF_DIR = Path(__file__).parent.parent / "generated"
 
+# Upload ceiling for /transcribe. ~10 minutes of 16 kHz 16-bit mono WAV.
+MAX_AUDIO_BYTES = 20 * 1024 * 1024
+
 # Reused verbatim from fixtures/report.json -- the existing list is reasonable
 # and is not activity-specific, so it stays static for now.
 # TODO(pair-b): make this per-activity (a dairy unit needs a cattle insurance
@@ -52,8 +55,33 @@ def transcribe(audio: UploadFile = File(...), language: str = "hi"):
     The response contract is unchanged -- {"transcript", "provider"} -- because
     the frontend already renders the provider name.
     """
+    # Bounded read. audio.file.read() with no argument pulled the whole upload
+    # into memory, so one oversized POST could exhaust the API container. The
+    # cap is generous for the use case -- a spoken business description is a
+    # few seconds of speech -- and Bhashini is sent this as base64, which
+    # inflates it by a third again.
+    audio_bytes = audio.file.read(MAX_AUDIO_BYTES + 1)
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "error": "AUDIO_TOO_LARGE",
+                "message": f"Audio must be under {MAX_AUDIO_BYTES // (1024 * 1024)} MB. "
+                           "Record a shorter clip, or type the description instead.",
+            },
+        )
+    if not audio_bytes:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "EMPTY_AUDIO",
+                "message": "No audio was received. Record again, or type the "
+                           "description instead.",
+            },
+        )
+
     result = transcription.transcribe(
-        audio.file.read(),
+        audio_bytes,
         language=language,
         filename=audio.filename or "audio.wav",
         content_type=audio.content_type or "audio/wav",
@@ -101,6 +129,18 @@ def _pick_scheme(project_cost: int, gender: str | None = None) -> str:
     """
     terms = finance.SCHEME_TERMS
     eligible = [sid for sid in terms if _is_eligible_scheme(sid, gender)]
+    if not eligible:
+        # Unreachable today (only one scheme is restricted), but max() on an
+        # empty sequence raises ValueError -> a 500 with no explanation. If
+        # WOMEN_ONLY_SCHEMES ever grows to cover everything, fail with a
+        # message someone can act on.
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "NO_ELIGIBLE_SCHEME",
+                "message": "No scheme we model is open to this applicant.",
+            },
+        )
     covering = [sid for sid in eligible if terms[sid]["max_loan"] >= project_cost]
     if covering:
         return min(covering, key=lambda sid: terms[sid]["rate"])
@@ -221,7 +261,10 @@ def _report_key(report: ProjectReport, language: str) -> str:
     instead of filling the disk with near-identical PDFs. Content-derived
     rather than random so it stays deterministic, like the rest of Pair B.
     """
-    basis = f"{report.activity_id}|{language}|{report.total_project_cost}|"             f"{report.recommended_scheme_id}|{report.finance.emi}"
+    basis = (
+        f"{report.activity_id}|{language}|{report.total_project_cost}|"
+        f"{report.recommended_scheme_id}|{report.finance.emi}"
+    )
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
 
 

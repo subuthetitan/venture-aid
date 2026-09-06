@@ -63,7 +63,10 @@ def test_schedule_amortises_to_zero_and_reconciles():
 
     # Totals are rounded once at output while rows round individually, so the
     # sum of the rows may drift by a few paise. Anything larger is a real bug.
-    assert abs(sum(row.interest for row in r.schedule) - r.total_interest) < 1.0
+    # The schedule's interest column covers the REPAYMENT period only, so it
+    # reconciles against total_interest less the moratorium capitalisation.
+    row_interest = sum(row.interest for row in r.schedule)
+    assert abs(row_interest - (r.total_interest - r.moratorium_interest)) < 1.0
     assert abs(sum(row.emi for row in r.schedule) - r.total_repayment) < 1.0
 
 
@@ -160,3 +163,70 @@ def test_subsidy_note_makes_no_uncited_factual_claim():
         assert banned not in note.lower(), f"uncited factual claim back in note: {banned!r}"
     # The computed part must survive.
     assert "100,000" in note and "months late" in note
+
+
+# ------------------------------------------------- bug-fix regression pass --
+def test_total_interest_includes_moratorium_capitalisation():
+    """REGRESSION: total_interest used to be the schedule sum only.
+
+    On a Rs 5,00,000 Suvidha loan that silently omitted Rs 20,336 of interest
+    capitalised during the 6-month moratorium, and the response contradicted
+    itself: sanctionable + total_interest != total_repayment. This is the one
+    feature whose whole claim is that every number is arithmetic we can show,
+    so an understated cost of borrowing is the worst defect it can carry.
+    """
+    for scheme_id in SCHEME_TERMS:
+        r = calculate(scheme_id, project_cost=500000)
+        if r.sanctionable_amount == 0:
+            continue
+        assert r.moratorium_interest > 0
+        # The identity that must hold for any amortising loan.
+        assert abs(
+            (r.sanctionable_amount + r.total_interest) - r.total_repayment
+        ) < 1.0, f"{scheme_id} does not reconcile"
+        # And the moratorium interest is genuinely absent from the rows.
+        rows = sum(row.interest for row in r.schedule)
+        assert abs(r.total_interest - r.moratorium_interest - rows) < 1.0
+
+
+def test_moratorium_interest_is_zero_when_there_is_no_loan():
+    r = calculate("nsfdc.suvidha", project_cost=100000, own_contribution=100000)
+    assert r.moratorium_interest == 0.0
+    assert r.total_interest == 0.0
+
+
+def test_negative_own_contribution_cannot_inflate_the_loan():
+    """REGRESSION: own_contribution=-50000 on a Rs 1,00,000 project sanctioned
+    Rs 1,50,000 -- a larger loan than the project needs, on a bank submission.
+    """
+    r = calculate("nsfdc.suvidha", project_cost=100000, own_contribution=-50000)
+    assert r.sanctionable_amount == 100000
+
+
+def test_negative_project_cost_is_clamped_not_propagated():
+    r = calculate("nsfdc.suvidha", project_cost=-100000)
+    assert r.sanctionable_amount == 0
+    assert r.emi == 0.0
+    assert r.total_repayment == 0.0
+
+
+def test_unknown_scheme_raises_a_typed_error_not_a_bare_keyerror():
+    """REGRESSION: a bad scheme_id escaped as KeyError -> HTTP 500.
+
+    Utkarsh is the realistic trigger: it is deliberately absent from
+    SCHEME_TERMS, so anyone wiring it up from Pair A's seed data hits this.
+    """
+    import pytest
+
+    from app.services.finance import UnknownScheme
+
+    with pytest.raises(UnknownScheme):
+        calculate("nsfdc.utkarsh", project_cost=100000)
+
+
+def test_emi_with_no_repayment_months_returns_zero_not_a_crash():
+    # Guards a scheme whose moratorium equals its tenure. Both branches of
+    # emi() used to divide by zero here.
+    assert emi(Decimal(100000), 8.0, 0) == Decimal(0)
+    assert emi(Decimal(100000), 0.0, 0) == Decimal(0)
+    assert emi(Decimal(0), 8.0, 12) == Decimal(0)

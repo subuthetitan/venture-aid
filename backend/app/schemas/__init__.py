@@ -69,11 +69,17 @@ class RecommendResponse(BaseModel):
 
 # ------------------------------------------------------- PAIR B: calculate --
 class CalculateRequest(BaseModel):
+    # ge=0 on every money field. This tightens VALIDATION without changing the
+    # wire shape, so no consumer that was sending sane input is affected. It
+    # closes a real hole: a negative own_contribution used to INFLATE the
+    # sanctionable amount (project_cost 1,00,000 with own_contribution -50,000
+    # sanctioned 1,50,000). subsidy_delay_months is capped at 600 months so a
+    # typo cannot produce an absurd figure in the subsidy note.
     scheme_id: str
-    project_cost: int
-    own_contribution: int = 0
-    subsidy_amount: int = 0
-    subsidy_delay_months: int = 0          # the differentiator
+    project_cost: int = Field(ge=0)
+    own_contribution: int = Field(default=0, ge=0)
+    subsidy_amount: int = Field(default=0, ge=0)
+    subsidy_delay_months: int = Field(default=0, ge=0, le=600)   # the differentiator
 
 
 class ScheduleRow(BaseModel):
@@ -91,7 +97,13 @@ class CalculateResponse(BaseModel):
     tenure_months: int
     moratorium_months: int
     emi: float
-    total_interest: float
+    total_interest: float                  # FULL cost of borrowing, moratorium included
+    # ADDITIVE FIELD (defaulted, so every existing consumer keeps working).
+    # Interest capitalised during the moratorium. It appears in total_interest
+    # and in total_repayment but in NO schedule row, because the schedule only
+    # begins when repayment does. Reported separately so the UI can explain the
+    # gap instead of leaving it looking like an arithmetic error.
+    moratorium_interest: float = 0.0
     total_repayment: float
     schedule: list[ScheduleRow]
     subsidy_note: str | None = None

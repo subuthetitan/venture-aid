@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { api } from "../lib/api";
+import { api, isStructuredDetail } from "../lib/api";
 
 // Same NaN guard as SanctionReady.jsx. A malformed number must never render as
 // a literal "NaN" -- that reads as a real figure on a document someone takes to
@@ -17,26 +17,30 @@ const rupees2 = (n) =>
 const percent = (n) =>
   typeof n === "number" && Number.isFinite(n) ? `${n}% per annum` : "—";
 
-// Mirrors SCHEME_TERMS in backend/app/services/finance.py.
+// DISPLAY NAMES only. Everything that governs behaviour -- rate, tenure,
+// moratorium, ceiling, and the women-only flag -- now comes from
+// GET /api/calculate/schemes, so this file can no longer drift out of sync
+// with SCHEME_TERMS or WOMEN_ONLY_SCHEMES the way the old hardcoded list could.
 //
-// DISPLAY NAMES: only 'Suvidha Loan' is sourced -- it appears in Pair A's
+// Only 'Suvidha Loan' is sourced -- it appears in Pair A's
 // fixtures/recommend.json. The other three labels are transliterations of the
 // scheme ids and are NOT taken from any published NSFDC page.
 // TODO(pair-b): confirm all four official scheme names alongside the
 // SCHEME_TERMS source URLs. The raw scheme_id is shown next to each label in
 // the dropdown so an operator can always see exactly what is being sent.
-//
-// womenOnly mirrors WOMEN_ONLY_SCHEMES in backend/app/routers/readiness.py.
-// DUPLICATED CONSTANT: the backend does not expose that set over the API, so
-// this list can silently drift out of sync with the gate that actually governs
-// eligibility. It is display-only here -- it gates nothing -- but if a scheme
-// is added there it must be added here too.
-const SCHEMES = [
-  { id: "nsfdc.suvidha", label: "Suvidha Loan", womenOnly: false },
-  { id: "nsfdc.micro_credit", label: "Micro Credit Finance", womenOnly: false },
-  { id: "nsfdc.mahila_samriddhi", label: "Mahila Samriddhi Yojana", womenOnly: true },
-  { id: "nsfdc.laghu_vyavsay", label: "Laghu Vyavsay Yojana", womenOnly: false },
-];
+const SCHEME_LABELS = {
+  "nsfdc.suvidha": "Suvidha Loan",
+  "nsfdc.micro_credit": "Micro Credit Finance",
+  "nsfdc.mahila_samriddhi": "Mahila Samriddhi Yojana",
+  "nsfdc.laghu_vyavsay": "Laghu Vyavsay Yojana",
+};
+
+// Used only until the scheme list loads, and if the request fails. Ids match
+// the backend; a label we do not have falls back to the raw id.
+const FALLBACK_SCHEMES = Object.keys(SCHEME_LABELS).map((id) => ({
+  scheme_id: id,
+  women_only: id === "nsfdc.mahila_samriddhi",
+}));
 
 const FIELDS = [
   { key: "project_cost", label: "Project cost (Rs)", required: true },
@@ -51,7 +55,8 @@ const toInt = (value) => {
 };
 
 export default function Calculator() {
-  const [schemeId, setSchemeId] = useState(SCHEMES[0].id);
+  const [schemes, setSchemes] = useState(FALLBACK_SCHEMES);
+  const [schemeId, setSchemeId] = useState(FALLBACK_SCHEMES[0].scheme_id);
   const [values, setValues] = useState({
     project_cost: "",
     own_contribution: "",
@@ -63,7 +68,32 @@ export default function Calculator() {
   const [loading, setLoading] = useState(false);
   const [showSchedule, setShowSchedule] = useState(true);
 
-  const selected = SCHEMES.find((s) => s.id === schemeId);
+  // Scheme terms are the backend's, not ours. On failure we keep the fallback
+  // ids so the page still works offline -- the labels are the same either way.
+  useEffect(() => {
+    let live = true;
+    api
+      .schemes()
+      .then((rows) => {
+        if (!live || !Array.isArray(rows) || rows.length === 0) return;
+        setSchemes(rows);
+        if (!rows.some((s) => s.scheme_id === schemeId)) {
+          setSchemeId(rows[0].scheme_id);
+        }
+      })
+      .catch(() => {
+        // Non-fatal: FALLBACK_SCHEMES already covers the dropdown, and the
+        // POST is what actually validates the scheme_id.
+      });
+    return () => {
+      live = false;
+    };
+    // Runs once. schemeId is read but deliberately not a dependency: refetching
+    // the scheme list every time the user changes the dropdown is pointless.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const selected = schemes.find((s) => s.scheme_id === schemeId);
   const canSubmit = !loading && toInt(values.project_cost) > 0;
 
   async function submit() {
@@ -81,9 +111,17 @@ export default function Calculator() {
         }),
       );
     } catch (e) {
-      // api.js throws `new Error("<status> <path>")` and discards the response
-      // body, so there is no structured detail to surface here.
-      setError(e?.message ?? "unknown error");
+      // api.js now carries the parsed body, so a structured backend error
+      // (UNKNOWN_SCHEME and friends) shows its own message instead of a bare
+      // status code.
+      const detail = e?.detail;
+      setError(
+        isStructuredDetail(detail) && detail.message
+          ? detail.message
+          : e?.status === 0
+            ? "Could not reach the API. Is the backend running?"
+            : (e?.message ?? "unknown error"),
+      );
     } finally {
       setLoading(false);
     }
@@ -118,16 +156,17 @@ export default function Calculator() {
           className="mt-1 w-full max-w-lg rounded-md border border-stone-300 p-2 text-sm
                      focus:border-stone-500 focus:outline-none"
         >
-          {SCHEMES.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.label} ({s.id}){s.womenOnly ? " — women applicants only" : ""}
+          {schemes.map((s) => (
+            <option key={s.scheme_id} value={s.scheme_id}>
+              {SCHEME_LABELS[s.scheme_id] ?? s.scheme_id} ({s.scheme_id})
+              {s.women_only ? " — women applicants only" : ""}
             </option>
           ))}
         </select>
         {/* Surfaced, not gated. This calculator collects no applicant gender,
             so it cannot make an eligibility determination -- it just must not
             let someone quote an EMI without knowing the restriction exists. */}
-        {selected?.womenOnly && (
+        {selected?.women_only && (
           <p className="mt-1 text-xs text-amber-800">
             Mahila Samriddhi Yojana is restricted to women applicants. This
             calculator will still model it for comparison, but confirm
@@ -217,9 +256,31 @@ export default function Calculator() {
             </dd>
             <dt className="text-stone-500">Total interest</dt>
             <dd>Rs {rupees2(result.total_interest)}</dd>
+            {result.moratorium_interest > 0 && (
+              <>
+                <dt className="text-stone-500 pl-4">
+                  …of which capitalised during the moratorium
+                </dt>
+                <dd>Rs {rupees2(result.moratorium_interest)}</dd>
+              </>
+            )}
             <dt className="text-stone-500">Total repayment</dt>
             <dd>Rs {rupees2(result.total_repayment)}</dd>
           </dl>
+
+          {/* Without this line the schedule below looks like it fails to add
+              up: its interest column covers the repayment period only, while
+              total interest also includes the moratorium capitalisation. */}
+          {result.moratorium_interest > 0 && (
+            <p className="mt-3 text-xs text-stone-500">
+              Interest accrues from day one but nothing is repaid during the{" "}
+              {result.moratorium_months}-month moratorium, so Rs{" "}
+              {rupees2(result.moratorium_interest)} is added to the balance
+              before the first instalment. That amount is inside total interest
+              and total repayment, but it appears in no row of the schedule
+              below — the schedule starts when repayment does.
+            </p>
+          )}
 
           {/* Only rendered when the API actually sent one. */}
           {result.subsidy_note && (

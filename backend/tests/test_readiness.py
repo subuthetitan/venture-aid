@@ -166,3 +166,50 @@ def test_pdf_failure_never_fails_the_report():
     assert r.status_code == 200
     assert r.json()["pdf_url"] is None
     assert r.json()["total_project_cost"] > 0
+
+
+# ------------------------------------------ /transcribe upload guard tests --
+def _client():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    return TestClient(app)
+
+
+def test_oversized_audio_upload_is_rejected_with_413():
+    """REGRESSION: audio.file.read() with no argument pulled the entire upload
+    into memory, so a single oversized POST could exhaust the API container."""
+    from app.routers.readiness import MAX_AUDIO_BYTES
+
+    payload = b"\0" * (MAX_AUDIO_BYTES + 1024)
+    res = _client().post(
+        "/api/readiness/transcribe",
+        files={"audio": ("big.wav", payload, "audio/wav")},
+    )
+    assert res.status_code == 413
+    assert res.json()["detail"]["error"] == "AUDIO_TOO_LARGE"
+
+
+def test_empty_audio_upload_is_a_clean_422_not_a_fixture_transcript():
+    """An empty upload previously fell straight through to the cached fixture
+    and was returned as if it were a real transcription."""
+    res = _client().post(
+        "/api/readiness/transcribe",
+        files={"audio": ("empty.wav", b"", "audio/wav")},
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"]["error"] == "EMPTY_AUDIO"
+
+
+def test_normal_sized_audio_still_transcribes(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "offline_mode", True)
+    res = _client().post(
+        "/api/readiness/transcribe",
+        files={"audio": ("clip.wav", b"\0" * 2048, "audio/wav")},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["provider"] == "fixture"
+    assert body["transcript"]

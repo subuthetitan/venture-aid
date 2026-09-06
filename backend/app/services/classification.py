@@ -6,7 +6,18 @@ not generated. A keyword table is auditable -- you can point at the exact line
 that produced a match. A model call is not.
 
 Matching is deliberately dumb:
-  - case-folded substring match against a per-activity keyword list
+  - case-folded match against a per-activity keyword list
+  - LATIN-SCRIPT keywords match on WORD BOUNDARIES, with an optional trailing
+    plural (-s / -es). Plain substring matching produced real false positives:
+    "chairs" fired the tea stall on "chai", and "instead" and "steamer" both
+    fired it on "tea". A transcript about furniture came back classified as a
+    tea stall, and the pipeline would then have costed a tea stall on a bank
+    submission.
+  - NON-LATIN keywords (Devanagari, Kannada) stay on substring matching. Those
+    scripts agglutinate case markers directly onto the noun -- सिलाई का,
+    सिलाईवाला -- so a boundary rule would lose more real matches than the
+    false positives it prevents. The false-positive risk is also far lower:
+    the keywords are long multi-character sequences, not three letters.
   - the activity with the most distinct keyword hits wins
   - ties are broken by the order activities appear in _KEYWORDS (stable, so
     the classifier is fully deterministic for a given input)
@@ -32,6 +43,7 @@ from an ASR system will contain spellings this table does not have.
 TODO(pair-b): native-speaker review of hi + kn keywords before demo day.
 =============================================================================
 """
+import re
 
 UNRECOGNIZED = "UNRECOGNIZED_ACTIVITY"
 
@@ -113,12 +125,39 @@ _KEYWORDS: dict[str, list[str]] = {
 }
 
 
+def _pattern(keyword: str) -> re.Pattern:
+    """Word-boundary matcher for one Latin-script keyword.
+
+    Boundaries are asserted against [a-z0-9] rather than \\b so that an
+    adjacent Devanagari or Kannada character (common in mixed-script ASR
+    output, e.g. "tailoringका") still counts as a boundary. A trailing -s / -es
+    is allowed so "goats" still matches "goat" -- without it the boundary rule
+    would trade one class of bug for another.
+    """
+    return re.compile(rf"(?<![a-z0-9]){re.escape(keyword.casefold())}(?:e?s)?(?![a-z0-9])")
+
+
+# Compiled once at import. Latin keywords carry a pattern; non-Latin ones carry
+# None and fall back to substring containment.
+_MATCHERS: dict[str, list[tuple[str, re.Pattern | None]]] = {
+    activity_id: [
+        (kw.casefold(), _pattern(kw) if kw.isascii() else None)
+        for kw in keywords
+    ]
+    for activity_id, keywords in _KEYWORDS.items()
+}
+
+
 def _score(transcript: str) -> dict[str, int]:
-    """Distinct keyword hits per activity. Case-folded substring matching."""
+    """Distinct keyword hits per activity. See the module docstring for the
+    Latin word-boundary vs non-Latin substring split."""
     text = transcript.casefold()
     return {
-        activity_id: sum(1 for kw in keywords if kw.casefold() in text)
-        for activity_id, keywords in _KEYWORDS.items()
+        activity_id: sum(
+            1 for folded, pattern in matchers
+            if (pattern.search(text) if pattern is not None else folded in text)
+        )
+        for activity_id, matchers in _MATCHERS.items()
     }
 
 

@@ -92,3 +92,43 @@ def test_all_absent_transcript_forms_behave_identically():
     assert classify_activity("", "hi") == UNRECOGNIZED
     assert classify_activity("   \t\n  ", "hi") == UNRECOGNIZED
     assert classify_activity(None, "hi") == UNRECOGNIZED
+
+
+# ------------------------------------------------- bug-fix regression pass --
+@pytest.mark.parametrize("transcript", [
+    # 'chai' inside 'chairs'
+    "I want to sell chairs in my shop",
+    # 'tea' inside 'instead'
+    "Please tell me instead what to do",
+    # 'tea' inside 'steam'
+    "I want to open a steam laundry",
+    # 'cow' inside 'cowardly'; 'tea' inside 'team'
+    "our team is not cowardly about this",
+])
+def test_latin_keywords_do_not_match_inside_other_words(transcript):
+    """REGRESSION: substring matching classified unrelated text as a tea stall.
+
+    Every string above returned tea_stall before the word-boundary fix. The
+    downstream artefact is a costed project report submitted to a bank, so a
+    confident wrong classification is worse than UNRECOGNIZED.
+    """
+    assert classify_activity(transcript, "en") == UNRECOGNIZED
+
+
+@pytest.mark.parametrize("transcript,expected", [
+    ("I want to rear goats", "goat_rearing"),
+    ("I want to buy two buffaloes", "dairy_unit"),
+    ("we will need sewing machines", "tailoring_unit"),
+    ("thinking about beauty parlours", "beauty_parlour"),
+])
+def test_word_boundaries_still_allow_plurals(transcript, expected):
+    """The boundary rule allows a trailing -s / -es, so the fix does not trade
+    false positives for missed real matches."""
+    assert classify_activity(transcript, "en") == expected
+
+
+def test_non_latin_keywords_still_match_agglutinated_forms():
+    # Devanagari attaches case markers to the noun, so those keywords stay on
+    # substring matching. A boundary rule would break these.
+    assert classify_activity("सिलाईका काम", "hi") == "tailoring_unit"
+    assert classify_activity("बकरीपालन शुरू करना है", "hi") == "goat_rearing"

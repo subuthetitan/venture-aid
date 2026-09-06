@@ -1,13 +1,10 @@
 import { useState } from "react";
 
-// Same pattern as src/lib/api.js. Duplicated deliberately: this page needs the
-// ERROR RESPONSE BODY (the backend's supported_activities list), and api.js's
-// req() throws `new Error(status + path)` and discards the body, so
-// api.readiness() cannot surface it. Reusing the BASE expression rather than
-// hardcoding localhost keeps the deploy behaviour identical.
-// TODO(pair-b): fold this back into api.js once that helper can propagate the
-// parsed error body, then delete this fetch.
-const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+// The duplicate fetch that used to live here is gone. api.js's req() now
+// throws an ApiError carrying the parsed body, so api.readiness() can surface
+// the backend's supported_activities list -- which was the only reason this
+// page bypassed the shared helper. BASE is still needed for the PDF link.
+import { api, BASE, isStructuredDetail } from "../lib/api";
 
 // Guards the unvalidated boundary: ProjectReport.capex_items is typed
 // list[dict], so nothing in the schema stops an item arriving without
@@ -15,8 +12,11 @@ const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 // arithmetic fallback rendered a literal "NaN" in the Amount column, which
 // reads as a real figure on a report someone submits to a bank. An em dash
 // says "we do not have this number" instead.
+// Matches Calculator.jsx: anything that is not a finite number renders as an
+// em dash. Returning the raw value here let a string from the API render as if
+// it were a rupee figure.
 const rupees = (n) =>
-  typeof n === "number" ? (Number.isFinite(n) ? n.toLocaleString("en-IN") : "—") : n;
+  typeof n === "number" && Number.isFinite(n) ? n.toLocaleString("en-IN") : "—";
 
 // Turns 'tailoring_unit' into 'Tailoring unit' for display only. The id sent
 // back to the API is always the raw string from the response.
@@ -49,49 +49,31 @@ export default function SanctionReady() {
     };
 
     try {
-      const res = await fetch(`${BASE}/api/readiness`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      setReport(await api.readiness(body));
+    } catch (e) {
+      const detail = e?.detail;
 
-      if (!res.ok) {
-        let parsed = null;
-        try {
-          parsed = await res.json();
-        } catch {
-          // Non-JSON error body (proxy error page, gateway timeout).
-        }
-        const detail = parsed?.detail;
-
-        // The backend's activity errors (UNRECOGNIZED_ACTIVITY and
-        // NO_COST_TEMPLATE) both carry a supported_activities array. Keying off
-        // the array rather than the error code means a new code with the same
-        // shape still renders usefully. FastAPI's own validation 422s have an
-        // ARRAY detail, so detail.supported_activities is undefined there and
-        // they correctly fall through to the generic message.
-        if (
-          res.status === 422 &&
-          detail &&
-          !Array.isArray(detail) &&
-          Array.isArray(detail.supported_activities)
-        ) {
-          setError({
-            kind: "activity",
-            code: detail.error,
-            message: detail.message,
-            supported: detail.supported_activities,
-          });
-        } else {
-          setError({ kind: "generic", status: res.status });
-        }
-        return;
+      // The backend's activity errors (UNRECOGNIZED_ACTIVITY and
+      // NO_COST_TEMPLATE) both carry a supported_activities array. Keying off
+      // the array rather than the error code means a new code with the same
+      // shape still renders usefully. FastAPI's own validation 422s have an
+      // ARRAY detail, so isStructuredDetail() is false there and they
+      // correctly fall through to the generic message.
+      if (
+        e?.status === 422 &&
+        isStructuredDetail(detail) &&
+        Array.isArray(detail.supported_activities)
+      ) {
+        setError({
+          kind: "activity",
+          code: detail.error,
+          message: detail.message,
+          supported: detail.supported_activities,
+        });
+      } else {
+        // status 0 is a network failure / CORS / server unreachable.
+        setError({ kind: "generic", status: e?.status || null });
       }
-
-      setReport(await res.json());
-    } catch {
-      // Network failure, CORS, server unreachable.
-      setError({ kind: "generic", status: null });
     } finally {
       setLoading(false);
     }
@@ -212,8 +194,11 @@ export default function SanctionReady() {
               </tr>
             </thead>
             <tbody>
-              {report.capex_items.map((item) => (
-                <tr key={item.item} className="border-b border-stone-100">
+              {/* Index in the key: capex_items is list[dict], so nothing in
+                  the schema stops two rows sharing an item name, and a
+                  duplicate React key drops one of them from the table. */}
+              {report.capex_items.map((item, i) => (
+                <tr key={`${item.item}-${i}`} className="border-b border-stone-100">
                   <td className="py-1">{item.item}</td>
                   <td className="py-1 text-right">{item.qty}</td>
                   <td className="py-1 text-right">

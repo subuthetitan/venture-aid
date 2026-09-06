@@ -194,7 +194,16 @@
   </tr>
   <tr>
     <td class="k">Total interest</td>
-    <td>Rs {{ report.finance.total_interest | rupees }}</td>
+    <td>
+      Rs {{ report.finance.total_interest | rupees }}
+      {%- if report.finance.moratorium_interest and report.finance.moratorium_interest > 0 %}
+      <br><span style="font-size: 8.5pt; color: #444;">
+        Includes Rs {{ report.finance.moratorium_interest | rupees }} accrued
+        during the {{ report.finance.moratorium_months }}-month moratorium and
+        added to the balance before the first instalment.
+      </span>
+      {%- endif %}
+    </td>
   </tr>
   <tr>
     <td class="k">Total repayment</td>
