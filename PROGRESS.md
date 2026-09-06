@@ -25,10 +25,10 @@ implementations behind them; A and C are still day-zero fixtures, exactly as
 
 | Feature | Pair | Backend | Frontend | Verdict |
 |---|---|---|---|---|
-| Smart Scheme Recommender | A | **real** (DB-backed, seeded) | `Placeholder` | backend done, no UI |
-| Scheme Truth Layer | A | **real** (`rule_version` group-by) | `Placeholder` | backend done, no UI |
+| Smart Scheme Recommender | A | **real** (DB-backed, seeded) | **real** | done |
+| Scheme Truth Layer | A | **real** (`rule_version` group-by) | **real** | done |
 | **Financial Calculator** | **B** | **real, tested** | **real, complete** | **done** |
-| **Sanction-Ready** | **B** | **real except the voice UI** | **real except the mic** | **~85%** |
+| **Sanction-Ready** | **B** | **real** | **real, mic wired** | **done** |
 | Partner Locator & Router | C | **real** (DB-backed, 12 channels) | **real** (MapLibre) | done |
 | Transparency Ledger | C | **real** (k-anonymised SQL) | **real** | done |
 
@@ -684,3 +684,81 @@ Note for the other pairs: a failing test will now block your PR. That is the
 point. If something is genuinely work-in-progress, mark it `xfail` or `skip`
 with a reason, so the gap is visible in the run output instead of hidden behind
 a swallowed exit code.
+
+---
+
+## 9. Closing the two feature gaps
+
+Both remaining gaps from §8.5 are built. Done by Pair B during integration at
+the team's request; **Pair A owns their two screens from here on.**
+
+### 9.1 Pair A's screens (`Recommender.jsx`, `TruthLayer.jsx`)
+
+The backend was real and had no UI, so demo beats 1 and 2 — including the
+contradiction reveal the whole pitch rests on — could not be performed.
+
+Built against the live API payloads, not the schema on paper. Both screens
+enforce the two non-negotiable rules from the README in the markup itself:
+
+- **Never silently resolve a contradiction.** `CONTRADICTORY_SOURCES` renders
+  every live position side by side — value, authority, clickable source URL,
+  fetch date, effective-from. There is no "recommended value", no majority
+  vote, and no ordering that implies one source outranks another. The URLs are
+  real anchors because the demo hands a judge a phone.
+- **`INSUFFICIENT_DATA` is a third state, not a failure.** A condition with
+  `passed === null` renders `?`, never a cross, and says "No published source
+  found for this rule" rather than showing an invented threshold.
+
+New shared component `components/ProvenanceChips.jsx` (source · authority ·
+fetched on). The Recommender has a one-click **"Use Rs 4,20,000"** button so
+nobody has to type six digits correctly on stage to trigger beat 2.
+
+### 9.2 The microphone (`SanctionReady.jsx`)
+
+`MediaRecorder` → `POST /api/readiness/transcribe` → fills the textarea.
+Language picker covers the six the chain is wired for. `api.transcribe()` posts
+multipart (clearing the JSON content-type so the browser sets the boundary) and
+sends `language` as a query param, matching the endpoint's signature. Verified
+against the real endpoint with the exact shape the frontend sends.
+
+Every failure path — no `MediaRecorder`, permission denied, non-https origin,
+empty recording, oversized clip, provider error, unreachable API — lands in a
+note beside the textarea and **leaves the typed path fully usable**. The build
+plan's "ASR failing live must be a shrug, not a dead demo" is now literally
+true rather than true by accident.
+
+The provider that served each request is displayed, and `fixture` is labelled
+explicitly as a cached demo response rather than a transcription of what was
+just said — the README's "label every mock" rule.
+
+### 9.3 Bug found while building the UI: age rendered as money
+
+`services/eligibility.py` chose its number formatting from `kind`, and
+`age_criteria` is a `numeric_max` exactly like the income ceiling. So an
+applicant aged 30 came back as **`"actual": "Rs 30"`** — a string the new
+Recommender screen displays verbatim.
+
+Invisible until now because nothing rendered `actual`. `kind` is the wrong
+axis: money is not the only thing you can put a ceiling on.
+
+**Fixed** by adding `unit` (`inr` | `years` | `plain`) to `Condition`,
+defaulted to `inr` so every income condition is untouched, and tagging each
+field spec in `recommend.py`. Now `30 years` / `55 years`, with income still
+`Rs 250,000`. Two regression tests, one of which asserts the field-spec table
+still carries a unit column so a new condition cannot silently inherit rupees.
+
+### 9.4 Verified
+
+| Check | Result |
+|---|---|
+| Backend suite | **162 passed, 8 skipped** (+2 new) |
+| `npm run build` | clean |
+| `/api/readiness/transcribe` with the exact frontend multipart shape | 200, provider reported |
+| Empty upload | 422 `EMPTY_AUDIO` |
+| `/api/recommend` at Rs 4.2 lakh | `CONTRADICTORY_SOURCES`, age now `30 years` |
+
+> **Not yet clicked in a browser.** The pages compile and are built against
+> captured live payloads, but no one has driven them in a real browser, and the
+> microphone path in particular cannot be exercised headlessly — it needs a
+> real device, a permission grant, and an https/localhost origin. Do this in
+> the rehearsal before trusting beat 4.

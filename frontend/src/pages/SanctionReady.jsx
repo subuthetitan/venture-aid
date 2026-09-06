@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // The duplicate fetch that used to live here is gone. api.js's req() now
 // throws an ApiError carrying the parsed body, so api.readiness() can surface
@@ -23,12 +23,151 @@ const rupees = (n) =>
 const prettify = (id) =>
   id.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
+// Languages the ASR chain is wired for. Sent to /api/readiness/transcribe as
+// the bare code; transcription.py maps it to Sarvam's BCP-47 form.
+const LANGUAGES = [
+  { code: "hi", label: "हिन्दी / Hindi" },
+  { code: "kn", label: "ಕನ್ನಡ / Kannada" },
+  { code: "mr", label: "मराठी / Marathi" },
+  { code: "ta", label: "தமிழ் / Tamil" },
+  { code: "bn", label: "বাংলা / Bengali" },
+  { code: "en", label: "English" },
+];
+
+// Mirrors MAX_AUDIO_BYTES in backend/app/routers/readiness.py. Checked here so
+// an over-long recording fails fast with a clear message instead of a 413
+// after a slow upload.
+const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+
 export default function SanctionReady() {
   const [transcript, setTranscript] = useState("");
   const [gender, setGender] = useState("");
+  const [language, setLanguage] = useState("hi");
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // -- voice ---------------------------------------------------------------
+  // MVP_BUILD_PLAN.md: "Always keep a 'type it instead' path visible. ASR
+  // failing live must be a shrug, not a dead demo." So every failure below
+  // lands in `voiceNote` and leaves the textarea untouched and usable.
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceNote, setVoiceNote] = useState(null); // {kind:'info'|'error', text}
+  const [provider, setProvider] = useState(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+
+  // Release the microphone if the user navigates away mid-recording.
+  useEffect(() => {
+    return () => {
+      try {
+        recorderRef.current?.state === "recording" && recorderRef.current.stop();
+      } catch {
+        /* already stopped */
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  const micSupported =
+    typeof window !== "undefined" &&
+    typeof window.MediaRecorder !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia;
+
+  async function startRecording() {
+    setVoiceNote(null);
+    setProvider(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const rec = new MediaRecorder(stream);
+      rec.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
+      rec.onstop = () => {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        const blob = new Blob(chunksRef.current, {
+          type: rec.mimeType || "audio/webm",
+        });
+        sendAudio(blob);
+      };
+      recorderRef.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch {
+      // Permission denied, no device, or insecure origin (getUserMedia needs
+      // https or localhost).
+      setVoiceNote({
+        kind: "error",
+        text:
+          "Could not start the microphone — permission denied, no input device, " +
+          "or the page is not on https/localhost. Type the description instead.",
+      });
+    }
+  }
+
+  function stopRecording() {
+    setRecording(false);
+    try {
+      recorderRef.current?.stop();
+    } catch {
+      /* nothing recorded */
+    }
+  }
+
+  async function sendAudio(blob) {
+    if (!blob || blob.size === 0) {
+      setVoiceNote({ kind: "error", text: "Nothing was recorded. Try again, or type it instead." });
+      return;
+    }
+    if (blob.size > MAX_AUDIO_BYTES) {
+      setVoiceNote({
+        kind: "error",
+        text: `Recording is too long (${(blob.size / 1048576).toFixed(1)} MB, limit 20 MB). Record a shorter clip.`,
+      });
+      return;
+    }
+
+    setTranscribing(true);
+    setVoiceNote(null);
+    try {
+      const res = await api.transcribe(blob, language);
+      if (res?.transcript) {
+        setTranscript(res.transcript);
+        setProvider(res.provider ?? null);
+        // Labelled fallback, per the README rule on never shipping an
+        // unlabelled mock: 'fixture' means no provider answered and this is a
+        // cached demo response, not a transcription of what was just said.
+        setVoiceNote(
+          res.provider === "fixture"
+            ? {
+                kind: "info",
+                text:
+                  "No speech provider was reachable, so this is a cached demo " +
+                  "transcript — not a transcription of what you just said. " +
+                  "Edit it, or type your own.",
+              }
+            : { kind: "info", text: `Transcribed by ${res.provider}. Check it before generating.` },
+        );
+      } else {
+        setVoiceNote({ kind: "error", text: "No transcript came back. Type it instead." });
+      }
+    } catch (e) {
+      const detail = e?.detail;
+      setVoiceNote({
+        kind: "error",
+        text:
+          (isStructuredDetail(detail) && detail.message) ||
+          (e?.status === 0
+            ? "Could not reach the API. Type the description instead."
+            : `Transcription failed (${e?.status ?? "?"}). Type the description instead.`),
+      });
+    } finally {
+      setTranscribing(false);
+    }
+  }
 
   // `override` lets the supported-activity chips re-submit as an explicit
   // activity_id instead of relying on the classifier a second time.
@@ -38,7 +177,9 @@ export default function SanctionReady() {
     setReport(null);
 
     const body = {
-      language: "hi",
+      // Drives both the classifier hint and which localised activity label
+      // heads the generated PDF (pdf_generator._titles).
+      language,
       profile: {
         family_income: 0,
         state_code: "KA",
@@ -84,6 +225,88 @@ export default function SanctionReady() {
       <div className="rounded-lg border bg-white p-8">
         <p className="text-xs uppercase tracking-wide text-stone-400">Pair B</p>
         <h2 className="mt-1 text-xl font-semibold">Sanction-Ready</h2>
+
+        {/* ------------------------------------------------------- voice -- */}
+        <div className="mt-4 rounded-md border border-stone-200 bg-stone-50 p-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label htmlFor="asr-lang" className="block text-sm font-medium text-stone-700">
+                Spoken language
+              </label>
+              <select
+                id="asr-lang"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                disabled={recording || transcribing}
+                className="mt-1 rounded-md border border-stone-300 p-2 text-sm
+                           focus:border-stone-500 focus:outline-none
+                           disabled:cursor-not-allowed disabled:bg-stone-100"
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>{l.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {!recording ? (
+              <button
+                type="button"
+                onClick={startRecording}
+                disabled={!micSupported || transcribing || loading}
+                className="rounded-md bg-stone-800 px-4 py-2 text-sm font-medium text-white
+                           hover:bg-stone-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+              >
+                {transcribing ? "Transcribing…" : "● Record"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={stopRecording}
+                className="rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white
+                           hover:bg-red-800"
+              >
+                ■ Stop
+              </button>
+            )}
+
+            {recording && (
+              <span className="flex items-center gap-2 text-sm text-red-700">
+                <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-600" />
+                Recording…
+              </span>
+            )}
+            {provider && !recording && !transcribing && (
+              <span className="rounded-full bg-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                provider: {provider}
+              </span>
+            )}
+          </div>
+
+          {!micSupported && (
+            <p className="mt-2 text-xs text-stone-500">
+              This browser cannot record audio. Type the description below —
+              everything else works the same.
+            </p>
+          )}
+
+          {voiceNote && (
+            <p
+              className={`mt-2 rounded-md border p-2 text-xs ${
+                voiceNote.kind === "error"
+                  ? "border-amber-300 bg-amber-50 text-amber-900"
+                  : "border-stone-300 bg-white text-stone-700"
+              }`}
+            >
+              {voiceNote.text}
+            </p>
+          )}
+
+          <p className="mt-2 text-xs text-stone-500">
+            Speech goes to Bhashini first, then Sarvam, then a cached fixture.
+            Whichever answered is named above, and a cached response is always
+            labelled as one.
+          </p>
+        </div>
 
         <label
           htmlFor="transcript"

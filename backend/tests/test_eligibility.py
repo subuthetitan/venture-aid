@@ -134,3 +134,49 @@ def test_truth_layer_contradictions_endpoint_surfaces_the_same_reveal(client):
     assert body[0]["field"] == "family_income_ceiling"
     amounts = {p["value"]["amount"] for p in body[0]["positions"]}
     assert amounts == {500000, 300000}
+
+
+# --------------------------------------------- integration-pass regression --
+def test_non_money_conditions_are_not_rendered_as_rupees():
+    """REGRESSION: age_criteria is a `numeric_max` like the income ceiling, so
+    the renderer keyed off `kind` printed an applicant aged 30 as "Rs 30".
+
+    That string is displayed verbatim on the Recommender screen, so it is a
+    user-visible defect, not a cosmetic one. `unit` is the correct axis: money
+    is not the only thing you can put a ceiling on.
+    """
+    from app.schemas import Provenance
+    from app.services.eligibility import Condition, ConditionSource, evaluate
+
+    prov = Provenance(source_url="https://example.gov.in/x",
+                      source_authority="NSFDC", observed_at="2026-09-03")
+
+    age = Condition(id="age_criteria", kind="numeric_max", var_name="age",
+                    human_text="Age limit", unit="years",
+                    sources=[ConditionSource(value={"amount": 55}, provenance=prov)])
+    income = Condition(id="family_income_ceiling", kind="numeric_max",
+                       var_name="family_income", human_text="Income ceiling",
+                       sources=[ConditionSource(value={"amount": 300000}, provenance=prov)])
+
+    _, results = evaluate([age, income], {"age": 30, "family_income": 250000})
+    by_id = {r.condition_id: r for r in results}
+
+    assert by_id["age_criteria"].actual == "30 years"
+    assert by_id["age_criteria"].threshold == "55 years"
+    assert "Rs" not in by_id["age_criteria"].actual
+    assert "Rs" not in by_id["age_criteria"].threshold
+
+    # Money conditions must be unchanged -- `unit` defaults to 'inr'.
+    assert by_id["family_income_ceiling"].actual == "Rs 250,000"
+    assert by_id["family_income_ceiling"].threshold == "Rs 300,000"
+
+
+def test_recommend_tags_a_unit_for_every_field_spec():
+    """Every field spec must carry a unit, so a new condition cannot silently
+    inherit rupee formatting the way age_criteria did."""
+    import inspect
+
+    from app.routers import recommend
+
+    src = inspect.getsource(recommend._conditions_for_scheme)
+    assert '"years"' in src and '"inr"' in src, "field_specs lost its unit column"

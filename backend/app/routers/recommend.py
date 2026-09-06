@@ -37,16 +37,21 @@ def _conditions_for_scheme(db: Session, scheme_id: str) -> list[Condition]:
     for r in rows:
         by_field.setdefault(r.field, []).append(r)
 
+    # (kind, profile field, human text, unit). `unit` is how the number is
+    # rendered to a human and is independent of `kind`: age is a numeric_max
+    # too, and without this it was displayed as "Rs 30".
     field_specs = {
         "family_income_ceiling": ("numeric_max", "family_income",
-                                  "Annual family income must not exceed the scheme ceiling"),
+                                  "Annual family income must not exceed the scheme ceiling",
+                                  "inr"),
         "caste_category": ("category_in", "caste_category",
-                           "Applicant must belong to a Scheduled Caste"),
-        "age_criteria": ("numeric_max", "age", "Age criteria"),
+                           "Applicant must belong to a Scheduled Caste", "plain"),
+        "age_criteria": ("numeric_max", "age",
+                         "Applicant age must be within the scheme's age limits", "years"),
     }
 
     conditions = []
-    for field_name, (kind, var_name, human_text) in field_specs.items():
+    for field_name, (kind, var_name, human_text, unit) in field_specs.items():
         sources = [
             ConditionSource(
                 value=r.value,
@@ -60,7 +65,7 @@ def _conditions_for_scheme(db: Session, scheme_id: str) -> list[Condition]:
             for r in by_field.get(field_name, [])
         ]
         conditions.append(Condition(id=field_name, kind=kind, var_name=var_name,
-                                     human_text=human_text, sources=sources))
+                                     human_text=human_text, sources=sources, unit=unit))
     return conditions
 
 

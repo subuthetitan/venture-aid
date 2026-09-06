@@ -66,6 +66,22 @@ export const api = {
     req("/api/calculate", { method: "POST", body: JSON.stringify(body) }),
   readiness: (body) =>
     req("/api/readiness", { method: "POST", body: JSON.stringify(body) }),
+  // Multipart, so it cannot go through req(): that helper forces
+  // Content-Type: application/json, which would stop the browser setting the
+  // multipart boundary and the upload would arrive unparseable. `language` is
+  // a query param because the endpoint declares it outside the File(...) body.
+  transcribe: (blob, language = "hi") => {
+    const form = new FormData();
+    // The filename matters: transcription.py forwards it to Sarvam's multipart
+    // `file` field, and the extension is how the provider infers the codec.
+    const ext = (blob.type || "").includes("ogg") ? "ogg"
+      : (blob.type || "").includes("wav") ? "wav" : "webm";
+    form.append("audio", blob, `speech.${ext}`);
+    return req(
+      `/api/readiness/transcribe?language=${encodeURIComponent(language)}`,
+      { method: "POST", body: form, headers: {} },
+    );
+  },
   // encodeURIComponent: a district code with a '&' or '#' in it silently
   // truncated or corrupted the query string before this.
   channels: (district) =>

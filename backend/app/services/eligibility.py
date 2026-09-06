@@ -38,6 +38,13 @@ class Condition:
     var_name: str                  # profile field this reads, e.g. 'family_income'
     human_text: str
     sources: list[ConditionSource] = field(default_factory=list)
+    # How to render this condition's numbers to a human. `kind` alone was used
+    # for this and it is the WRONG axis: age_criteria is also a "numeric_max",
+    # so an applicant aged 30 was rendered as "Rs 30" in actual/threshold, and
+    # that string is shown directly on the Recommender screen. Money is not the
+    # only thing you can put a ceiling on. Defaults to "inr" so existing
+    # income conditions are unchanged.
+    unit: str = "inr"              # 'inr' | 'years' | 'plain'
 
 
 def hashable_value(value: Any):
@@ -70,19 +77,28 @@ def _apply(kind: str, value: dict, profile_value: Any) -> bool | None:
     return bool(jsonLogic(_rule(kind, value), {"x": profile_value}))
 
 
-def _render_value(kind: str, value: dict) -> str:
+def _format_number(unit: str, n: Any) -> str:
+    """Render a bare number in the unit this condition is actually measured in."""
+    if unit == "years":
+        return f"{n:,} years"
+    if unit == "plain":
+        return f"{n:,}"
+    return f"Rs {n:,}"
+
+
+def _render_value(kind: str, value: dict, unit: str = "inr") -> str:
     if kind == "numeric_max":
-        return f"Rs {value['amount']:,}"
+        return _format_number(unit, value["amount"])
     if kind == "category_in":
         return ", ".join(value["allowed"])
     return str(value)
 
 
-def _render_actual(kind: str, profile_value: Any) -> str | None:
+def _render_actual(kind: str, profile_value: Any, unit: str = "inr") -> str | None:
     if profile_value is None:
         return None
     if kind == "numeric_max":
-        return f"Rs {profile_value:,}"
+        return _format_number(unit, profile_value)
     return str(profile_value)
 
 
@@ -98,7 +114,7 @@ def evaluate(conditions: list[Condition], profile: dict) -> tuple[Verdict, list[
             any_missing = True
             results.append(ConditionResult(
                 condition_id=c.id, passed=None, human_text=c.human_text,
-                actual=_render_actual(c.kind, profile_value),
+                actual=_render_actual(c.kind, profile_value, c.unit),
                 counterfactual="Not published on any official page we could fetch.",
             ))
             continue
@@ -117,13 +133,13 @@ def evaluate(conditions: list[Condition], profile: dict) -> tuple[Verdict, list[
                     seen_keys.add(k)
                     distinct_dicts.append(s.value)
 
-            rendered = [_render_value(c.kind, v) for v in distinct_dicts]
+            rendered = [_render_value(c.kind, v, c.unit) for v in distinct_dicts]
             qualifies_under = [
-                _render_value(c.kind, v) for v in distinct_dicts
+                _render_value(c.kind, v, c.unit) for v in distinct_dicts
                 if _apply(c.kind, v, profile_value) is True
             ]
             fails_under = [
-                _render_value(c.kind, v) for v in distinct_dicts
+                _render_value(c.kind, v, c.unit) for v in distinct_dicts
                 if _apply(c.kind, v, profile_value) is False
             ]
             counterfactual = None
@@ -134,7 +150,7 @@ def evaluate(conditions: list[Condition], profile: dict) -> tuple[Verdict, list[
                 )
             results.append(ConditionResult(
                 condition_id=c.id, passed=None, human_text=c.human_text,
-                actual=_render_actual(c.kind, profile_value),
+                actual=_render_actual(c.kind, profile_value, c.unit),
                 threshold=f"{' or '.join(rendered)} - sources disagree",
                 provenance=provenance,
                 counterfactual=counterfactual,
@@ -147,8 +163,8 @@ def evaluate(conditions: list[Condition], profile: dict) -> tuple[Verdict, list[
             any_missing = True
         results.append(ConditionResult(
             condition_id=c.id, passed=passed, human_text=c.human_text,
-            actual=_render_actual(c.kind, profile_value),
-            threshold=_render_value(c.kind, value),
+            actual=_render_actual(c.kind, profile_value, c.unit),
+            threshold=_render_value(c.kind, value, c.unit),
             provenance=provenance,
         ))
 
